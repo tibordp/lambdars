@@ -1,0 +1,50 @@
+#max_reductions 10000
+#max_depth 1000
+#max_size 1000000
+
+#define 0 \f.\x.x
+#define 1 \f.\x.f x
+#define plus \m.\n.\f.\x.m f (n f x)
+#define succ (plus 1)
+#define mult \m.\n.\f.\x.m (n f) x
+#define pred \n.\f.\x.n (\g.\h.h (g f)) (\u.x) (\u.u)
+#define minus \m.\n.(n pred) m
+#define true \a.\b.a
+#define false \a.\b.b
+#define and \p.\q.p q p
+#define or \p.\q.p p q
+#define is_zero \n.n (\x.false) true
+#define leq \m.\n.is_zero (minus m n)
+#define eq \m.\n.and (leq m n) (leq n m)
+#define fix \f.(\x.f (x x))(\x.f (x x))
+
+#define fact_r \f.\x.(is_zero x) 1 (mult x (f (pred x)))
+#define fact fix fact_r
+
+#define divides_r \f.\m.\n.(leq m n) ((leq n m) true (f m (minus n m))) false
+#define divides fix divides_r
+
+#define is_prime_r \f.\m.\n.(is_zero (pred m) true ((divides m n) false (f (pred m) n)))
+#define is_prime \p.is_zero (pred p) false ((fix is_prime_r) (pred p) p)
+
+#define fib_r \f.\m.(is_zero (pred m) 1 (plus (f (pred m)) (f (pred (pred m)))))
+#define fib fix fib_r
+
+#define omega \f.f f
+#define Omega omega omega
+
+#define 2 succ 1
+#define 3 succ 2
+#define 4 succ 3
+#define 5 succ 4
+#define 6 succ 5
+#define 7 succ 6
+#define 8 succ 7
+#define 9 succ 8
+#define 10 succ 9
+#define 11 succ 10
+#define 12 succ 11
+#define 13 succ 12
+#define 14 succ 13
+#define 15 succ 14
+#define 16 succ 15

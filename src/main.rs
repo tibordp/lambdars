@@ -1,14 +1,33 @@
-mod expr {
-    use std::collections::{HashMap, HashSet};
+#[macro_use]
+extern crate log;
+extern crate clap;
+extern crate pretty_env_logger;
+extern crate rustyline;
+
+mod variable {
     use std::fmt;
 
-    #[derive(PartialEq, Eq, Hash, Clone)]
-    pub struct BoundVariable {
-        pub value: String,
-        pub index: u32,
+    #[derive(PartialEq, Eq, Hash, Clone, Debug)]
+    pub struct Variable {
+        value: String,
+        index: usize,
     }
 
-    impl fmt::Display for BoundVariable {
+    impl Variable {
+        pub fn value(&self) -> &str {
+            &self.value
+        }
+
+        pub fn index(&self) -> usize {
+            self.index
+        }
+
+        pub fn new(value: String, index: usize) -> Self {
+            Variable { value, index }
+        }
+    }
+
+    impl fmt::Display for Variable {
         fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
             fmt.write_str(&self.value)?;
             if self.index != 0 {
@@ -18,54 +37,117 @@ mod expr {
         }
     }
 
-    pub enum Expr {
-        Variable(BoundVariable),
-        Apply(Box<Expr>, Box<Expr>),
-        Lambda(BoundVariable, Box<Expr>),
+    pub trait VariablePool {
+        fn next_named(&mut self, &str) -> Variable;
+        fn next_anon(&mut self) -> Variable;
     }
 
-    impl Clone for Expr {
-        fn clone(&self) -> Expr {
+    pub struct DefaultVariablePool {
+        index: usize,
+    }
+
+    impl DefaultVariablePool {
+        pub fn new() -> Self {
+            Self { index: 1 }
+        }
+    }
+
+    impl VariablePool for DefaultVariablePool {
+        fn next_named(&mut self, s: &str) -> Variable {
+            let result = Variable::new(s.to_owned(), self.index);
+            self.index += 1;
+            result
+        }
+        fn next_anon(&mut self) -> Variable {
+            let result = Variable::new("$tmp".to_owned(), self.index);
+            self.index += 1;
+            result
+        }
+    }
+
+    pub struct PrettyVariablePool {
+        index: usize,
+    }
+
+    static PRETTY_NAMES: &'static [char] = &[
+        'x', 'y', 'z', 'u', 'v', 'w', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+    ];
+
+    impl PrettyVariablePool {
+        pub fn new() -> Self {
+            Self { index: 0 }
+        }
+    }
+
+    impl VariablePool for PrettyVariablePool {
+        fn next_named(&mut self, _: &str) -> Variable {
+            unimplemented!()
+        }
+
+        fn next_anon(&mut self) -> Variable {
+            let result = Variable::new(
+                PRETTY_NAMES[self.index % PRETTY_NAMES.len()].to_string(),
+                self.index / PRETTY_NAMES.len(),
+            );
+            self.index += 1;
+            result
+        }
+    }
+}
+
+mod expression {
+    use std::collections::{HashMap, HashSet};
+    use std::fmt;
+    use variable::Variable;
+
+    pub enum Expression {
+        Variable(Variable),
+        Apply(Box<Expression>, Box<Expression>),
+        Lambda(Variable, Box<Expression>),
+    }
+
+    impl Clone for Expression {
+        fn clone(&self) -> Expression {
             match self {
-                Expr::Variable(var) => Expr::Variable(var.clone()),
-                Expr::Apply(lhs, rhs) => Expr::Apply(Box::new(lhs.as_ref().clone()), Box::new(rhs.as_ref().clone())),
-                Expr::Lambda(var, body) => Expr::Lambda(var.clone(), Box::new(body.as_ref().clone())),
+                Expression::Variable(var) => Expression::Variable(var.clone()),
+                Expression::Apply(lhs, rhs) => Expression::Apply(Box::new(lhs.as_ref().clone()), Box::new(rhs.as_ref().clone())),
+                Expression::Lambda(var, body) => Expression::Lambda(var.clone(), Box::new(body.as_ref().clone())),
             }
         }
     }
 
-    impl Expr {
-        fn bound_variables_impl(&self, variables: &mut HashSet<BoundVariable>) {
+    impl Expression {
+        fn variables_impl(&self, variables: &mut HashSet<Variable>) {
             match self {
-                Expr::Variable(_) => (),
-                Expr::Apply(lhs, rhs) => {
-                    lhs.as_ref().bound_variables_impl(variables);
-                    rhs.as_ref().bound_variables_impl(variables);
+                Expression::Variable(_) => (),
+                Expression::Apply(lhs, rhs) => {
+                    lhs.as_ref().variables_impl(variables);
+                    rhs.as_ref().variables_impl(variables);
                 }
-                Expr::Lambda(var, body) => {
+                Expression::Lambda(var, body) => {
                     variables.insert(var.clone());
-                    body.as_ref().bound_variables_impl(variables);
+                    body.as_ref().variables_impl(variables);
                 }
             }
         }
 
-        pub fn bound_variables(&self) -> HashSet<BoundVariable> {
+        pub fn variables(&self) -> HashSet<Variable> {
             let mut result = HashSet::new();
-            self.bound_variables_impl(&mut result);
+            self.variables_impl(&mut result);
             result
         }
 
-        pub fn alpha_reduce(&self, replacements: &HashMap<BoundVariable, BoundVariable>) -> Expr {
+        pub fn alpha_reduce(&self, replacements: &HashMap<Variable, Variable>) -> Expression {
             match self {
-                Expr::Variable(var) => Expr::Variable(match replacements.get(var) {
+                Expression::Variable(var) => Expression::Variable(match replacements.get(var) {
                     None => var.clone(),
                     Some(rep) => rep.clone(),
                 }),
-                Expr::Apply(lhs, rhs) => Expr::Apply(
+                Expression::Apply(lhs, rhs) => Expression::Apply(
                     Box::new(lhs.as_ref().alpha_reduce(replacements)),
                     Box::new(rhs.as_ref().alpha_reduce(replacements)),
                 ),
-                Expr::Lambda(var, body) => Expr::Lambda(
+                Expression::Lambda(var, body) => Expression::Lambda(
                     match replacements.get(var) {
                         None => var.clone(),
                         Some(rep) => rep.clone(),
@@ -75,60 +157,37 @@ mod expr {
             }
         }
 
-        pub fn beta_reduce(&self, variable: &BoundVariable, replacement: &Expr) -> Expr {
+        pub fn stats(&self) -> ExpressionStats {
+            let child_stats = match self {
+                Expression::Variable(_) => ExpressionStats::default(),
+                Expression::Apply(lhs, rhs) => ExpressionStats::combine(&lhs.as_ref().stats(), &rhs.as_ref().stats()),
+                Expression::Lambda(_, body) => body.as_ref().stats(),
+            };
+
+            child_stats.next()
+        }
+
+        pub fn beta_reduce(&self, variable: &Variable, replacement: &Expression) -> Expression {
             match self {
-                Expr::Variable(var) => {
+                Expression::Variable(var) => {
                     if var == variable {
                         replacement.clone()
                     } else {
-                        Expr::Variable(var.clone())
+                        Expression::Variable(var.clone())
                     }
                 }
-                Expr::Apply(lhs, rhs) => Expr::Apply(
+                Expression::Apply(lhs, rhs) => Expression::Apply(
                     Box::new(lhs.as_ref().beta_reduce(variable, replacement)),
                     Box::new(rhs.as_ref().beta_reduce(variable, replacement)),
                 ),
-                Expr::Lambda(var, body) => Expr::Lambda(var.clone(), Box::new(body.as_ref().beta_reduce(variable, replacement))),
+                Expression::Lambda(var, body) => Expression::Lambda(var.clone(), Box::new(body.as_ref().beta_reduce(variable, replacement))),
             }
-        }
-
-        fn macro_replace_impl(&self, bound_variables: &mut HashSet<BoundVariable>, replacements: &HashMap<BoundVariable, Expr>) -> Expr {
-            match self {
-                Expr::Variable(var) => {
-                    if bound_variables.contains(&var) {
-                        Expr::Variable(var.clone())
-                    } else {
-                        match replacements.get(var) {
-                            Some(replacement) => replacement.clone(),
-                            _ => Expr::Variable(var.clone()),
-                        }
-                    }
-                }
-                Expr::Apply(lhs, rhs) => Expr::Apply(
-                    Box::new(lhs.as_ref().macro_replace_impl(bound_variables, replacements)),
-                    Box::new(rhs.as_ref().macro_replace_impl(bound_variables, replacements)),
-                ),
-                Expr::Lambda(var, body) => {
-                    bound_variables.insert(var.clone());
-                    let result = Expr::Lambda(
-                        var.clone(),
-                        Box::new(body.as_ref().macro_replace_impl(bound_variables, replacements)),
-                    );
-                    bound_variables.remove(&var);
-                    result
-                }
-            }
-        }
-
-        pub fn macro_replace(&self, replacements: &HashMap<BoundVariable, Expr>) -> Expr {
-            let mut bound_variables = HashSet::new();
-            self.macro_replace_impl(&mut bound_variables, replacements)
         }
 
         fn fmt_impl(&self, fmt: &mut fmt::Formatter, lambda_parent: bool, is_rhs: bool) -> fmt::Result {
             match self {
-                Expr::Variable(var) => write!(fmt, "{}", var),
-                Expr::Apply(lhs, rhs) => {
+                Expression::Variable(var) => write!(fmt, "{}", var),
+                Expression::Apply(lhs, rhs) => {
                     if is_rhs {
                         fmt.write_str("(")?;
                     }
@@ -142,7 +201,7 @@ mod expr {
                     }
                     Ok(())
                 }
-                Expr::Lambda(var, body) => {
+                Expression::Lambda(var, body) => {
                     if is_rhs || !lambda_parent {
                         fmt.write_str("(")?
                     }
@@ -160,7 +219,37 @@ mod expr {
         }
     }
 
-    impl fmt::Display for Expr {
+    #[derive(Default)]
+    pub struct ExpressionStats {
+        size: u32,
+        depth: u32,
+    }
+
+    impl ExpressionStats {
+        pub fn size(&self) -> u32 {
+            self.size
+        }
+
+        pub fn depth(&self) -> u32 {
+            self.depth
+        }
+
+        pub fn combine(lhs: &Self, rhs: &Self) -> Self {
+            Self {
+                size: lhs.size + rhs.size,
+                depth: ::std::cmp::max(lhs.depth, rhs.depth),
+            }
+        }
+
+        pub fn next(&self) -> Self {
+            Self {
+                size: self.size + 1,
+                depth: self.depth + 1,
+            }
+        }
+    }
+
+    impl fmt::Display for Expression {
         fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
             self.fmt_impl(fmt, true, false)
         }
@@ -168,12 +257,18 @@ mod expr {
 }
 
 mod parser {
-    use expr::*;
+    use expression::*;
+    use std::collections::HashSet;
     use std::iter;
+    use variable::Variable;
 
-    pub enum Node {
-        Define(BoundVariable, Expr),
-        Reduce(Expr),
+    pub enum AstNode {
+        Nothing,
+        Define(Variable, Expression),
+        SetMaxReductions(u32),
+        SetMaxSize(u32),
+        SetMaxDepth(u32),
+        Reduce(Expression),
     }
 
     #[derive(Debug, Clone)]
@@ -186,20 +281,20 @@ mod parser {
         Command(String),
     }
 
-    pub struct Tokenizer<T>
+    pub struct Lexer<T>
     where
         T: Iterator<Item = char>,
     {
         iter: iter::Peekable<T>,
     }
 
-    impl<T: Iterator<Item = char>> Tokenizer<T> {
+    impl<T: Iterator<Item = char>> Lexer<T> {
         pub fn new(it: T) -> Self {
             Self { iter: it.peekable() }
         }
     }
 
-    impl<T: Iterator<Item = char>> Iterator for Tokenizer<T> {
+    impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
         type Item = Token;
         fn next(&mut self) -> Option<Token> {
             let result = match self.iter.peek().cloned() {
@@ -270,265 +365,475 @@ mod parser {
     #[derive(Debug)]
     pub enum ParseError {
         UnexpectedToken(Token),
+        RedefinedVariable(Variable),
         UnknownCommand(String),
+        ExpectedInteger(String),
         Unterminated,
     }
 
-    pub fn get_variable(tok: Option<Token>) -> Result<BoundVariable, ParseError> {
-        match tok {
-            Some(Token::Identifier(id)) => Ok(BoundVariable {
-                value: id.to_owned(),
-                index: 0,
-            }),
-            Some(tok) => Err(ParseError::UnexpectedToken(tok)),
-            _ => Err(ParseError::Unterminated),
-        }
+    pub struct Parser<T: Iterator<Item = Token>> {
+        it: iter::Peekable<T>,
+        variables: HashSet<Variable>,
     }
 
-    pub fn parse_lambda<T: Iterator<Item = Token>>(it: &mut iter::Peekable<T>) -> Result<Expr, ParseError> {
-        assert_token!(it.next(), Token::Lambda)?;
-        let variable = get_variable(it.next())?;
-        assert_token!(it.next(), Token::Dot)?;
-        let expression = parse_expr(it, false)?;
-        Ok(Expr::Lambda(variable, Box::new(expression)))
-    }
-
-    pub fn parse_paren<T: Iterator<Item = Token>>(it: &mut iter::Peekable<T>) -> Result<Expr, ParseError> {
-        assert_token!(it.next(), Token::OpenParen)?;
-        parse_expr(it, true)
-    }
-
-    pub fn parse_variable_expr<T: Iterator<Item = Token>>(it: &mut iter::Peekable<T>) -> Result<Expr, ParseError> {
-        let variable = get_variable(it.next())?;
-        Ok(Expr::Variable(variable))
-    }
-
-    pub fn parse_expr<T: Iterator<Item = Token>>(it: &mut iter::Peekable<T>, parentheses: bool) -> Result<Expr, ParseError> {
-        let mut result: Option<Expr> = None;
-
-        loop {
-            let subexpr: Result<Expr, ParseError> = match it.peek().cloned() {
-                Some(Token::OpenParen) => parse_paren(it),
-                Some(Token::CloseParen) => break,
-                Some(Token::Lambda) => parse_lambda(it),
-                Some(Token::Identifier(_)) => parse_variable_expr(it),
-                _ => break,
-            };
-
-            result = match result {
-                Some(expr) => Some(Expr::Apply(Box::new(expr), Box::new(subexpr?))),
-                _ => Some(subexpr?),
+    impl<T: Iterator<Item = Token>> Parser<T> {
+        pub fn new(it: T) -> Self {
+            Self {
+                it: it.peekable(),
+                variables: HashSet::new(),
             }
         }
 
-        if parentheses {
-            assert_token!(it.next(), Token::CloseParen)?;
-        }
-
-        if let Some(e) = result {
-            Ok(e)
-        } else {
-            Err(ParseError::Unterminated)
-        }
-    }
-
-    pub fn parse_define<T: Iterator<Item = Token>>(it: &mut iter::Peekable<T>) -> Result<Node, ParseError> {
-        it.next();
-        let variable = get_variable(it.next())?;
-        let expression = parse_expr(it, false)?;
-        Ok(Node::Define(variable, expression))
-    }
-
-    pub fn parse<T: Iterator<Item = Token>>(it: &mut iter::Peekable<T>) -> Result<Node, ParseError> {
-        match it.peek().cloned() {
-            Some(Token::Command(s)) => match s.as_ref() {
-                "define" => parse_define(it),
-                s => Err(ParseError::UnknownCommand(s.to_owned())),
-            },
-            Some(Token::OpenParen) | Some(Token::CloseParen) | Some(Token::Lambda) | Some(Token::Identifier(_)) => {
-                parse_expr(it, false).map(Node::Reduce)
+        fn get_variable(tok: Option<Token>) -> Result<Variable, ParseError> {
+            match tok {
+                Some(Token::Identifier(id)) => Ok(Variable::new(id.to_owned(), 0)),
+                Some(tok) => Err(ParseError::UnexpectedToken(tok)),
+                _ => Err(ParseError::Unterminated),
             }
-            Some(tok) => Err(ParseError::UnexpectedToken(tok)),
-            None => Err(ParseError::Unterminated),
+        }
+
+        fn parse_lambda(&mut self) -> Result<Expression, ParseError> {
+            assert_token!(self.it.next(), Token::Lambda)?;
+            let variable = Self::get_variable(self.it.next())?;
+            if self.variables.contains(&variable) {
+                return Err(ParseError::RedefinedVariable(variable));
+            }
+            assert_token!(self.it.next(), Token::Dot)?;
+            self.variables.insert(variable.clone());
+            let expression = self.parse_expression(false)?;
+            self.variables.remove(&variable);
+            Ok(Expression::Lambda(variable, Box::new(expression)))
+        }
+
+        fn parse_paren(&mut self) -> Result<Expression, ParseError> {
+            assert_token!(self.it.next(), Token::OpenParen)?;
+            self.parse_expression(true)
+        }
+
+        fn parse_variable_expression(&mut self) -> Result<Expression, ParseError> {
+            let variable = Self::get_variable(self.it.next())?;
+            Ok(Expression::Variable(variable))
+        }
+
+        fn parse_expression(&mut self, parentheses: bool) -> Result<Expression, ParseError> {
+            let mut result: Option<Expression> = None;
+
+            loop {
+                let subexpression: Result<Expression, ParseError> = match self.it.peek().cloned() {
+                    Some(Token::OpenParen) => self.parse_paren(),
+                    Some(Token::CloseParen) => break,
+                    Some(Token::Lambda) => self.parse_lambda(),
+                    Some(Token::Identifier(_)) => self.parse_variable_expression(),
+                    _ => break,
+                };
+
+                result = match result {
+                    Some(expression) => Some(Expression::Apply(Box::new(expression), Box::new(subexpression?))),
+                    _ => Some(subexpression?),
+                }
+            }
+
+            if parentheses {
+                assert_token!(self.it.next(), Token::CloseParen)?;
+            }
+
+            if let Some(e) = result {
+                Ok(e)
+            } else {
+                Err(ParseError::Unterminated)
+            }
+        }
+
+        fn parse_define(&mut self) -> Result<AstNode, ParseError> {
+            self.it.next();
+            let variable = Self::get_variable(self.it.next())?;
+            let expression = self.parse_expression(false)?;
+            Ok(AstNode::Define(variable, expression))
+        }
+
+        fn parse_max_reductions(&mut self) -> Result<AstNode, ParseError> {
+            self.it.next();
+            let variable = Self::get_variable(self.it.next())?;
+            let variable_name = variable.value();
+            let limit = variable_name
+                .parse::<u32>()
+                .map_err(|_| ParseError::ExpectedInteger(variable_name.to_owned()))?;
+            Ok(AstNode::SetMaxReductions(limit))
+        }
+
+        fn parse_max_size(&mut self) -> Result<AstNode, ParseError> {
+            self.it.next();
+            let variable = Self::get_variable(self.it.next())?;
+            let variable_name = variable.value();
+            let limit = variable_name
+                .parse::<u32>()
+                .map_err(|_| ParseError::ExpectedInteger(variable_name.to_owned()))?;
+            Ok(AstNode::SetMaxSize(limit))
+        }
+
+        fn parse_max_depth(&mut self) -> Result<AstNode, ParseError> {
+            self.it.next();
+            let variable = Self::get_variable(self.it.next())?;
+            let variable_name = variable.value();
+            let limit = variable_name
+                .parse::<u32>()
+                .map_err(|_| ParseError::ExpectedInteger(variable_name.to_owned()))?;
+            Ok(AstNode::SetMaxDepth(limit))
+        }
+
+        pub fn parse(&mut self) -> Result<AstNode, ParseError> {
+            match self.it.peek().cloned() {
+                Some(Token::Command(s)) => match s.as_ref() {
+                    "define" => self.parse_define(),
+                    "max_reductions" => self.parse_max_reductions(),
+                    "max_size" => self.parse_max_size(),
+                    "max_depth" => self.parse_max_depth(),
+                    s => Err(ParseError::UnknownCommand(s.to_owned())),
+                },
+                Some(Token::OpenParen) | Some(Token::CloseParen) | Some(Token::Lambda) | Some(Token::Identifier(_)) => {
+                    self.parse_expression(false).map(AstNode::Reduce)
+                }
+                Some(tok) => Err(ParseError::UnexpectedToken(tok)),
+                None => Ok(AstNode::Nothing),
+            }
         }
     }
 }
 
-mod reducer {
-    use expr::*;
-    use std::collections::HashMap;
+mod interpreter {
+    use expression::Expression;
+    use parser::AstNode;
+    use variable::{Variable, VariablePool, PrettyVariablePool};
 
-    pub trait VariablePool {
-        fn next_named(&mut self, &str) -> BoundVariable;
-        fn next_anon(&mut self) -> BoundVariable;
+    use std::collections::{HashMap, HashSet};
+    use std::vec::Vec;
+
+    #[derive(Default)]
+    pub struct ReduceStats {
+        alpha: u32,
+        beta: u32,
     }
 
-    pub struct DefaultVariablePool {
-        index: u32,
-    }
+    impl ReduceStats {
+        pub fn alpha(&self) -> u32 {
+            self.alpha
+        }
 
-    impl DefaultVariablePool {
-        pub fn new() -> Self {
-            Self { index: 1 }
+        pub fn beta(&self) -> u32 {
+            self.beta
+        }
+
+        pub fn is_finished(&self) -> bool {
+            return self.alpha == 0 && self.beta == 0;
+        }
+
+        pub fn combine(lhs: &Self, rhs: &Self) -> Self {
+            Self {
+                alpha: lhs.alpha + rhs.alpha,
+                beta: lhs.beta + rhs.beta,
+            }
+        }
+
+        pub fn new(alpha : u32, beta : u32) -> Self {
+            Self { alpha, beta }
         }
     }
 
-    impl VariablePool for DefaultVariablePool {
-        fn next_named(&mut self, s: &str) -> BoundVariable {
-            let result = BoundVariable {
-                value: s.to_owned(),
-                index: self.index,
-            };
-            self.index += 1;
-            result
-        }
-        fn next_anon(&mut self) -> BoundVariable {
-            let result = BoundVariable {
-                value: "$tmp".to_owned(),
-                index: self.index,
-            };
-            self.index += 1;
-            result
-        }
-    }
-
-    pub struct Reducer<'a> {
+    pub struct Interpreter<'a> {
+        macros: HashMap<Variable, Expression>,
+        max_reductions: u32,
+        max_size: u32,
+        max_depth: u32,
         pool: &'a mut VariablePool,
     }
 
-    impl<'a> Reducer<'a> {
-        pub fn reduce(&mut self, n: &Expr) -> (Expr, u32, u32) {
-            let mut alpha_reductions = 0;
-            let mut beta_reductions = 0;
+    impl<'a> Interpreter<'a> {
+        pub fn new(pool: &'a mut VariablePool) -> Self {
+            Self {
+                macros: HashMap::new(),
+                max_reductions: 100,
+                max_depth: 1000,
+                max_size: 1000,
+                pool,
+            }
+        }
 
-            let expr = match n {
-                Expr::Variable(var) => Expr::Variable(var.clone()),
-                Expr::Apply(lhs, rhs) => match lhs.as_ref() {
-                    Expr::Lambda(lhs_var, lhs_body) => {
-                        let left_vars = lhs.as_ref().bound_variables();
-                        let right_vars = rhs.as_ref().bound_variables();
+        fn reindex(&self, expression: &Expression) -> Expression {
+            let mut pool = PrettyVariablePool::new();
+            let mut taken_names = Vec::new();
+            let mut replacements = HashMap::new();
+            self.reindex_impl(expression, 0, &mut pool, &mut taken_names, &mut replacements)
+        }
 
-                        let mut replacements: HashMap<BoundVariable, BoundVariable> = left_vars
+        fn reindex_impl(
+            &self,
+            expression: &Expression,
+            depth: usize,
+            pool: &mut VariablePool,
+            taken_names: &mut Vec<Variable>,
+            replacements: &mut HashMap<Variable, Variable>,
+        ) -> Expression {
+            match expression {
+                Expression::Variable(var) => Expression::Variable(match replacements.get(var) {
+                    None => var.clone(),
+                    Some(rep) => rep.clone(),
+                }),
+                Expression::Apply(lhs, rhs) => Expression::Apply(
+                    Box::new(self.reindex_impl(lhs.as_ref(), depth, pool, taken_names, replacements)),
+                    Box::new(self.reindex_impl(rhs.as_ref(), depth, pool, taken_names, replacements)),
+                ),
+                Expression::Lambda(var, body) => {
+                    let replacement = if depth == taken_names.len() {
+                        let var = pool.next_anon();
+                        taken_names.push(var.clone());
+                        var
+                    } else {
+                        taken_names[depth].clone()
+                    };
+
+                    replacements.insert(var.clone(), replacement.clone());
+                    let result = Expression::Lambda(
+                        replacement.clone(),
+                        Box::new(self.reindex_impl(body.as_ref(), depth + 1, pool, taken_names, replacements)),
+                    );
+                    replacements.remove(&var);
+                    result
+                }
+            }
+        }
+
+        fn reduce(&mut self, n: &Expression) -> (Expression, ReduceStats) {
+            match n {
+                Expression::Variable(var) => (Expression::Variable(var.clone()), ReduceStats::default()),
+                Expression::Apply(lhs, rhs) => match lhs.as_ref() {
+                    Expression::Lambda(lhs_var, lhs_body) => {
+                        let left_vars = lhs.as_ref().variables();
+                        let right_vars = rhs.as_ref().variables();
+
+                        let mut replacements: HashMap<Variable, Variable> = left_vars
                             .intersection(&right_vars)
-                            .map(|color| (color.clone(), self.pool.next_named(&color.value)))
+                            .map(|color| (color.clone(), self.pool.next_named(color.value())))
                             .collect();
 
-                        beta_reductions += 1;
                         if replacements.is_empty() {
-                            lhs_body.beta_reduce(lhs_var, rhs)
+                            (lhs_body.beta_reduce(lhs_var, rhs), ReduceStats::new(0, 1))
                         } else {
-                            alpha_reductions += 1;
-                            lhs_body.beta_reduce(lhs_var, &rhs.alpha_reduce(&replacements))
+                            (
+                                lhs_body.beta_reduce(lhs_var, &rhs.alpha_reduce(&replacements)),
+                                ReduceStats::new(1, 1)
+                            )
                         }
                     }
                     _ => {
-                        let (lhs, left_alpha, left_beta) = self.reduce(lhs.as_ref());
-                        let (rhs, right_alpha, right_beta) = self.reduce(rhs.as_ref());
+                        let (lhs, lhs_stats) = self.reduce(lhs.as_ref());
+                        let (rhs, rhs_stats) = self.reduce(rhs.as_ref());
 
-                        alpha_reductions += left_alpha + right_alpha;
-                        beta_reductions += left_beta + right_beta;
-
-                        Expr::Apply(Box::new(lhs), Box::new(rhs))
+                        (
+                            Expression::Apply(Box::new(lhs), Box::new(rhs)),
+                            ReduceStats::combine(&lhs_stats, &rhs_stats),
+                        )
                     }
                 },
-                Expr::Lambda(var, body) => {
-                    let (body, alpha, beta) = self.reduce(body.as_ref());
-                    alpha_reductions += alpha;
-                    beta_reductions += beta;
-                    Expr::Lambda(var.clone(), Box::new(body))
+                Expression::Lambda(var, body) => {
+                    let (body, stats) = self.reduce(body.as_ref());
+                    (Expression::Lambda(var.clone(), Box::new(body)), stats)
                 }
-            };
-
-            (expr, alpha_reductions, beta_reductions)
-        }
-    }
-
-    impl<'a> Reducer<'a> {
-        pub fn new(pool: &'a mut VariablePool) -> Self {
-            Self { pool }
-        }
-    }
-}
-
-extern crate colored;
-extern crate rustyline;
-
-use colored::Colorize;
-use expr::*;
-use parser::*;
-use reducer::*;
-use std::collections::HashMap;
-
-struct Interpreter {
-    macros: HashMap<BoundVariable, Expr>,
-}
-
-impl Interpreter {
-    const MAX_REDUCTIONS: u32 = 100;
-
-    fn new() -> Self {
-        Self { macros: HashMap::new() }
-    }
-
-    fn reduce_full(expr: Expr, limit: u32) -> Result<Expr, Expr> {
-        let mut pool = DefaultVariablePool::new();
-        let mut reducer = Reducer::new(&mut pool);
-        let mut result = expr;
-
-        let mut total_alpha = 0;
-        let mut total_beta = 0;
-
-        for i in 1..limit {
-            let (reduced, alpha, beta) = reducer.reduce(&result);
-            if alpha == 0 && beta == 0 {
-                return Ok(reduced);
             }
+        }
 
-            total_alpha += alpha;
-            total_beta += beta;
+        fn reduce_full(&mut self, expression: Expression) -> Result<Expression, ()> {
+            let mut result = expression;
+            let mut overall_stats = ReduceStats::default();
 
-            eprintln!(
-                "{}",
-                format!(
+            for i in 1..self.max_reductions {
+                let (reduced, reduce_stats) = self.reduce(&result);
+                let expr_stats = reduced.stats();
+
+                if expr_stats.size() > self.max_size {
+                    warn!(
+                        "Intermediary expression exceeded the size limit {} (limit={})",
+                        expr_stats.size(),
+                        self.max_size
+                    );
+                    return Err(());
+                }
+
+                if expr_stats.depth() > self.max_depth {
+                    warn!(
+                        "Intermediary expression exceeded the depth limit {} (limit={})",
+                        expr_stats.depth(),
+                        self.max_depth
+                    );
+                    return Err(());
+                }
+
+                if reduce_stats.is_finished() {
+                    if i > 1 {
+                        // If expression was already reduced, we print nothing
+                        info!(
+                            "Reduced in {} iterations, total α: {}, total β: {}",
+                            i, overall_stats.alpha(), overall_stats.beta()
+                        );
+                    }
+                    return Ok(reduced);
+                }
+
+                overall_stats = ReduceStats::combine(&overall_stats, &reduce_stats);
+
+                trace!(
                     "iteration: {}\tα: {}\tβ: {}\ttotal α: {}\ttotal β: {}",
-                    i, alpha, beta, total_alpha, total_beta
-                ).yellow()
-            );
-            result = reduced;
-        }
-        Err(result)
-    }
+                    i,
+                    reduce_stats.alpha(),
+                    reduce_stats.beta(),
+                    overall_stats.alpha(),
+                    overall_stats.beta()
+                );
+                result = reduced;
+            }
 
-    fn eval(&mut self, what: &Node) {
-        match what {
-            Node::Reduce(expr) => match Interpreter::reduce_full(expr.macro_replace(&self.macros), Self::MAX_REDUCTIONS) {
-                Ok(reduced) => println!("{}", reduced),
-                Err(reduced) => {
-                    eprintln!("{}", format!("Could not reduce after {} reductions", Self::MAX_REDUCTIONS).yellow());
-                    println!("{}", reduced)
+            warn!("Iteration limit exceeded (limit={})", self.max_reductions);
+            Err(())
+        }
+
+        fn macro_replace_impl(&mut self, expression: &Expression, variables: &mut HashSet<Variable>) -> Expression {
+            match expression {
+                Expression::Variable(var) => {
+                    if variables.contains(&var) {
+                        // If the macro is a bound variable, do not replace it
+                        Expression::Variable(var.clone())
+                    } else {
+                        match self.macros.get(var).cloned() {
+                            Some(replacement) => {
+                                // Do an alpha reduction of the macro if there are already bound variables with the same name in the current context
+                                let mut replacements: HashMap<Variable, Variable> = replacement
+                                    .variables()
+                                    .intersection(&variables)
+                                    .map(|color| (color.clone(), self.pool.next_named(color.value())))
+                                    .collect();
+
+                                if replacements.is_empty() {
+                                    replacement
+                                } else {
+                                    replacement.alpha_reduce(&replacements)
+                                }
+                            }
+                            _ => Expression::Variable(var.clone()),
+                        }
+                    }
                 }
-            },
-            Node::Define(var, expr) => {
-                self.macros.insert(var.to_owned(), expr.to_owned());
+                Expression::Apply(lhs, rhs) => Expression::Apply(
+                    Box::new(self.macro_replace_impl(lhs.as_ref(), variables)),
+                    Box::new(self.macro_replace_impl(rhs.as_ref(), variables)),
+                ),
+                Expression::Lambda(var, body) => {
+                    variables.insert(var.clone());
+                    let result = Expression::Lambda(var.clone(), Box::new(self.macro_replace_impl(body.as_ref(), variables)));
+                    variables.remove(&var);
+                    result
+                }
+            }
+        }
+
+        fn macro_replace(&mut self, expression: &Expression) -> Expression {
+            let mut variables = HashSet::new();
+            self.macro_replace_impl(expression, &mut variables)
+        }
+
+        pub fn eval(&mut self, what: &AstNode) {
+            match what {
+                AstNode::Reduce(expression) => {
+                    let replaced = self.macro_replace(expression);
+                    match self.reduce_full(replaced) {
+                        Ok(reduced) => println!("{}", self.reindex(&reduced)),
+                        Err(_) => {
+                            println!("!error");
+                        }
+                    }
+                }
+                AstNode::Define(var, expression) => {
+                    let reduced_macro = self.macro_replace(expression);
+                    self.macros.insert(var.to_owned(), reduced_macro);
+                }
+                AstNode::SetMaxReductions(limit) => {
+                    self.max_reductions = *limit;
+                }
+                AstNode::SetMaxSize(limit) => {
+                    self.max_size = *limit;
+                }
+                AstNode::SetMaxDepth(limit) => {
+                    self.max_depth = *limit;
+                }
+                AstNode::Nothing => (),
             }
         }
     }
+}
+
+fn eval_file(interpreter: &mut interpreter::Interpreter, filename: &str) -> Result<(), std::io::Error> {
+    use std::fs::File;
+    use std::io::BufRead;
+    use std::io::BufReader;
+    use std::io::Error;
+    use std::io::ErrorKind;
+    use parser::{Lexer, Parser};
+
+    let f = File::open(filename)?;
+    let file = BufReader::new(&f);
+    for line in file.lines() {
+        let line = line?.to_owned();
+        let mut lexer = Lexer::new(line.chars());
+        let mut parser = Parser::new(lexer);
+
+        match parser.parse() {
+            Ok(stmt) => interpreter.eval(&stmt),
+            Err(err) => return Err(Error::new(ErrorKind::Other, format!("Could not parse! {:?}", err))),
+        };
+    }
+
+    Ok(())
 }
 
 fn main() {
+    let matches = clap::App::new(env!("CARGO_PKG_NAME"))
+        .version(env!("CARGO_PKG_VERSION"))
+        .about("Simple REPL for untyped lambda calculus")
+        .arg(
+            clap::Arg::with_name("preamble")
+                .short("p")
+                .long("preamble")
+                .value_name("FILE")
+                .help("Preamble for the REPL session")
+                .takes_value(true),
+        ).get_matches();
+
+    std::env::set_var("RUST_LOG", "info");
+    pretty_env_logger::init();
+
     let mut rl = rustyline::Editor::<()>::new();
-    let mut interpreter = Interpreter::new();
+    let mut variable_pool = variable::DefaultVariablePool::new();
+    let mut interpreter = interpreter::Interpreter::new(&mut variable_pool);
+
+    if let Some(filename) = matches.value_of("preamble") {
+        match eval_file(&mut interpreter, filename) {
+            Ok(_) => (),
+            Err(err) => {
+                error!("Error while loading the preamble {:?}", err);
+                ::std::process::exit(1);
+            }
+        };
+    }
 
     loop {
         let readline = rl.readline("> ");
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_ref());
-                let mut tokenizer = Tokenizer::new(line.chars()).peekable();
+                let mut lexer = parser::Lexer::new(line.chars());
+                let mut parser = parser::Parser::new(lexer);
 
-                match parse(&mut tokenizer) {
+                match parser.parse() {
                     Ok(stmt) => interpreter.eval(&stmt),
-                    Err(err) => eprintln!("{}", format!("Could not parse! {:?}", err).red()),
+                    Err(err) => error!("Could not parse! {:?}", err),
                 };
             }
             Err(_) => break,
