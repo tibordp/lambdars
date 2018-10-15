@@ -1,5 +1,7 @@
 use expression::Expression;
 use parser::AstNode;
+use std::error;
+use std::fmt;
 use variable::{PrettyVariablePool, Variable, VariablePool};
 
 use std::collections::{HashMap, HashSet};
@@ -36,7 +38,7 @@ impl ReduceStats {
     }
 }
 
-pub struct Interpreter<'a> {
+pub struct Runtime<'a> {
     macros: HashMap<Variable, Expression>,
     max_reductions: u32,
     max_size: u32,
@@ -44,7 +46,30 @@ pub struct Interpreter<'a> {
     pool: &'a mut VariablePool,
 }
 
-impl<'a> Interpreter<'a> {
+#[derive(Debug)]
+pub enum Error {
+    IterationsExceeded(Expression, u32),
+    DepthExceeded(Expression, u32),
+    SizeExceeded(Expression, u32),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::IterationsExceeded(_, cnt) => write!(f, "Exceeded limit of {} iterations.", cnt),
+            Error::DepthExceeded(_, cnt) => write!(f, "Intermediary expression exceeded depth limit ({}).", cnt),
+            Error::SizeExceeded(_, cnt) => write!(f, "Intermediary expression exceeded size limit ({})", cnt),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn cause(&self) -> Option<&error::Error> {
+        None
+    }
+}
+
+impl<'a> Runtime<'a> {
     pub fn new(pool: &'a mut VariablePool) -> Self {
         Self {
             macros: HashMap::new(),
@@ -138,7 +163,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn reduce_full(&mut self, expression: Expression) -> Result<Expression, ()> {
+    fn reduce_full(&mut self, expression: Expression) -> Result<Expression, Error> {
         let mut result = expression;
         let mut overall_stats = ReduceStats::default();
 
@@ -147,21 +172,11 @@ impl<'a> Interpreter<'a> {
             let expr_stats = reduced.stats();
 
             if expr_stats.size() > self.max_size {
-                warn!(
-                    "Intermediary expression exceeded the size limit {} (limit={})",
-                    expr_stats.size(),
-                    self.max_size
-                );
-                return Err(());
+                return Err(Error::SizeExceeded(result, expr_stats.size()));
             }
 
             if expr_stats.depth() > self.max_depth {
-                warn!(
-                    "Intermediary expression exceeded the depth limit {} (limit={})",
-                    expr_stats.depth(),
-                    self.max_depth
-                );
-                return Err(());
+                return Err(Error::DepthExceeded(result, expr_stats.depth()));
             }
 
             if reduce_stats.is_finished() {
@@ -190,8 +205,7 @@ impl<'a> Interpreter<'a> {
             result = reduced;
         }
 
-        warn!("Iteration limit exceeded (limit={})", self.max_reductions);
-        Err(())
+        Err(Error::IterationsExceeded(result, self.max_reductions))
     }
 
     fn macro_replace_impl(&mut self, expression: &Expression, variables: &mut HashSet<Variable>) -> Expression {
@@ -238,36 +252,38 @@ impl<'a> Interpreter<'a> {
         self.macro_replace_impl(expression, &mut variables)
     }
 
-    pub fn eval(&mut self, what: &AstNode) {
+    pub fn eval(&mut self, what: &AstNode) -> Result<Option<Expression>, Error> {
         match what {
             AstNode::Reduce(expression) => {
                 let replaced = self.macro_replace(expression);
-                match self.reduce_full(replaced) {
-                    Ok(reduced) => println!("{}", self.reindex(&reduced)),
-                    Err(_) => {
-                        println!("!error");
-                    }
-                }
+                let reduced = self.reduce_full(replaced)?;
+                let reindexed = self.reindex(&reduced);
+                Ok(Some(reindexed))
             }
             AstNode::Define(var, expression) => {
                 let reduced_macro = self.macro_replace(expression);
                 self.macros.insert(var.to_owned(), reduced_macro);
+                Ok(None)
             }
             AstNode::SetMaxReductions(limit) => {
                 self.max_reductions = *limit;
+                Ok(None)
             }
             AstNode::SetMaxSize(limit) => {
                 self.max_size = *limit;
+                Ok(None)
             }
             AstNode::SetMaxDepth(limit) => {
                 self.max_depth = *limit;
+                Ok(None)
             }
             AstNode::Dump => {
                 for (name, expr) in &self.macros {
                     println!("#define {} {}", name, expr);
                 }
-            }            
-            AstNode::Nothing => (),
+                Ok(None)
+            }
+            AstNode::Nothing => Ok(None),
         }
     }
 }
