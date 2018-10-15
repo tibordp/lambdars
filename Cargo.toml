@@ -1,0 +1,8 @@
+[package]
+name = "lambdars"
+version = "0.1.0"
+authors = ["Tibor Djurica Potpara <tibor.djurica@ojdip.net>"]
+
+[dependencies]
+rustyline = "2.1.0"
+colored = "1.6"
