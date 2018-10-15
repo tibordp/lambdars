@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use variable::Variable;
 
+#[derive(Debug)]
 pub enum Expression {
     Variable(Variable),
     Apply(Box<Expression>, Box<Expression>),
@@ -15,6 +16,12 @@ impl Clone for Expression {
             Expression::Apply(lhs, rhs) => Expression::Apply(Box::new(lhs.as_ref().clone()), Box::new(rhs.as_ref().clone())),
             Expression::Lambda(var, body) => Expression::Lambda(var.clone(), Box::new(body.as_ref().clone())),
         }
+    }
+}
+
+impl fmt::Display for Expression {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        self.fmt_impl(fmt, true, false)
     }
 }
 
@@ -148,11 +155,5 @@ impl ExpressionStats {
             size: self.size + 1,
             depth: self.depth + 1,
         }
-    }
-}
-
-impl fmt::Display for Expression {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        self.fmt_impl(fmt, true, false)
     }
 }

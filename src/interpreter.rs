@@ -262,6 +262,11 @@ impl<'a> Interpreter<'a> {
             AstNode::SetMaxDepth(limit) => {
                 self.max_depth = *limit;
             }
+            AstNode::Dump => {
+                for (name, expr) in &self.macros {
+                    println!("#define {} {}", name, expr);
+                }
+            }            
             AstNode::Nothing => (),
         }
     }
