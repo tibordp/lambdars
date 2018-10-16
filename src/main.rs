@@ -16,17 +16,17 @@ use std::io;
 
 #[derive(Debug)]
 pub enum ReplError {
-    IoError(io::Error),
-    ParseError(parser::Error),
-    RuntimeError(runtime::Error),
+    Io(io::Error),
+    Parse(parser::Error),
+    Runtime(runtime::Error),
 }
 
 impl fmt::Display for ReplError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ReplError::IoError(ref err) => write!(f, "IO error: {}", err),
-            ReplError::ParseError(ref err) => write!(f, "Parse error: {}", err),
-            ReplError::RuntimeError(ref err) => write!(f, "Runtime error: {}", err),
+            ReplError::Io(ref err) => write!(f, "IO error: {}", err),
+            ReplError::Parse(ref err) => write!(f, "Parse error: {}", err),
+            ReplError::Runtime(ref err) => write!(f, "Runtime error: {}", err),
         }
     }
 }
@@ -34,28 +34,28 @@ impl fmt::Display for ReplError {
 impl error::Error for ReplError {
     fn cause(&self) -> Option<&error::Error> {
         match *self {
-            ReplError::IoError(ref err) => Some(err),
-            ReplError::ParseError(ref err) => Some(err),
-            ReplError::RuntimeError(ref err) => Some(err),
+            ReplError::Io(ref err) => Some(err),
+            ReplError::Parse(ref err) => Some(err),
+            ReplError::Runtime(ref err) => Some(err),
         }
     }
 }
 
 impl From<io::Error> for ReplError {
     fn from(err: io::Error) -> Self {
-        ReplError::IoError(err)
+        ReplError::Io(err)
     }
 }
 
 impl From<runtime::Error> for ReplError {
     fn from(err: runtime::Error) -> Self {
-        ReplError::RuntimeError(err)
+        ReplError::Runtime(err)
     }
 }
 
 impl From<parser::Error> for ReplError {
     fn from(err: parser::Error) -> Self {
-        ReplError::ParseError(err)
+        ReplError::Parse(err)
     }
 }
 

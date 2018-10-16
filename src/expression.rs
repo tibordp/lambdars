@@ -2,21 +2,11 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use variable::Variable;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
     Variable(Variable),
     Apply(Box<Expression>, Box<Expression>),
     Lambda(Variable, Box<Expression>),
-}
-
-impl Clone for Expression {
-    fn clone(&self) -> Expression {
-        match self {
-            Expression::Variable(var) => Expression::Variable(var.clone()),
-            Expression::Apply(lhs, rhs) => Expression::Apply(Box::new(lhs.as_ref().clone()), Box::new(rhs.as_ref().clone())),
-            Expression::Lambda(var, body) => Expression::Lambda(var.clone(), Box::new(body.as_ref().clone())),
-        }
-    }
 }
 
 impl fmt::Display for Expression {

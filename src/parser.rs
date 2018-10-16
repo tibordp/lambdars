@@ -6,7 +6,7 @@ use std::iter::Peekable;
 use std::str::FromStr;
 use variable::Variable;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum AstNode {
     Nothing,
     Define(Variable, Expression),

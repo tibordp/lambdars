@@ -124,9 +124,9 @@ impl<'a> Runtime<'a> {
         }
     }
 
-    fn reduce(&mut self, n: &Expression) -> (Expression, ReduceStats) {
-        match n {
-            Expression::Variable(var) => (Expression::Variable(var.clone()), ReduceStats::default()),
+    fn reduce(&mut self, expr: &Expression) -> (Expression, ReduceStats) {
+        match expr {
+            Expression::Variable(_) => (expr.clone(), ReduceStats::default()),
             Expression::Apply(lhs, rhs) => match lhs.as_ref() {
                 Expression::Lambda(lhs_var, lhs_body) => {
                     let left_vars = lhs.as_ref().variables();
@@ -138,10 +138,10 @@ impl<'a> Runtime<'a> {
                         .collect();
 
                     if replacements.is_empty() {
-                        (lhs_body.beta_reduce(lhs_var, rhs), ReduceStats::new(0, 1))
+                        (lhs_body.beta_reduce(&lhs_var, rhs.as_ref()), ReduceStats::new(0, 1))
                     } else {
                         (
-                            lhs_body.beta_reduce(lhs_var, &rhs.alpha_reduce(&replacements)),
+                            lhs_body.beta_reduce(&lhs_var, &rhs.alpha_reduce(&replacements)),
                             ReduceStats::new(1, 1),
                         )
                     }
@@ -212,10 +212,9 @@ impl<'a> Runtime<'a> {
         match expression {
             Expression::Variable(var) => {
                 if variables.contains(&var) {
-                    // If the macro is a bound variable, do not replace it
                     Expression::Variable(var.clone())
                 } else {
-                    match self.macros.get(var).cloned() {
+                    match self.macros.get(&var).cloned() {
                         Some(replacement) => {
                             // Do an alpha reduction of the macro if there are already bound variables with the same name in the current context
                             let mut replacements: HashMap<Variable, Variable> = replacement
@@ -225,7 +224,7 @@ impl<'a> Runtime<'a> {
                                 .collect();
 
                             if replacements.is_empty() {
-                                replacement
+                                replacement.clone()
                             } else {
                                 replacement.alpha_reduce(&replacements)
                             }
@@ -261,7 +260,7 @@ impl<'a> Runtime<'a> {
                 Ok(Some(reindexed))
             }
             AstNode::Define(var, expression) => {
-                let reduced_macro = self.macro_replace(expression);
+                let reduced_macro = self.macro_replace(&expression);
                 self.macros.insert(var.to_owned(), reduced_macro);
                 Ok(None)
             }
