@@ -150,7 +150,7 @@ impl<T: Iterator<Item = Token>> Parser<T> {
 
     fn get_variable(tok: Option<Token>) -> Result<Variable, Error> {
         match tok {
-            Some(Token::Identifier(id)) => Ok(Variable::new(id.to_owned(), 0)),
+            Some(Token::Identifier(id)) => Ok(Variable::new(id, 0)),
             Some(tok) => Err(Error::UnexpectedToken(tok)),
             _ => Err(Error::Unterminated),
         }
