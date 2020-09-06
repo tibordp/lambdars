@@ -1,7 +1,7 @@
 use crate::expression::Expression;
 use crate::parser::AstNode;
 use crate::variable::{PrettyVariablePool, Variable, VariablePool};
-use log::{info, trace, warn};
+use log::{info, trace};
 use std::error;
 use std::fmt;
 

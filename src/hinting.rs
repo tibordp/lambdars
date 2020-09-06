@@ -1,7 +1,7 @@
 use regex::Regex;
-use std::borrow::Cow::{self, Borrowed, Owned};
+
 use std::cell::RefCell;
-use std::collections::HashSet;
+
 
 use crate::runtime::Runtime;
 use rustyline::completion::Completer;
@@ -15,7 +15,7 @@ pub struct Helper<'a> {
 impl<'a> Completer for Helper<'a> {
     type Candidate = String;
 
-    fn complete(&self, line: &str, pos: usize, ctx: &Context) -> Result<(usize, Vec<Self::Candidate>)> {
+    fn complete(&self, line: &str, pos: usize, _ctx: &Context) -> Result<(usize, Vec<Self::Candidate>)> {
         let regex = Regex::new(r"[\s()\\.]").expect("Invalid regex");
         let prefix = regex.split(&line[0..pos]).last().unwrap_or("");
         let mut candidates: Vec<_> = self

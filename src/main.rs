@@ -4,7 +4,7 @@ pub mod parser;
 pub mod runtime;
 pub mod variable;
 
-use log::{error, info, warn};
+use log::{error, warn};
 use std::convert::From;
 use std::error;
 use std::fmt;
@@ -88,8 +88,8 @@ fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
     use std::fs::File;
     use std::io::{BufRead, BufReader, ErrorKind};
 
-    let mut variable_pool = Box::new(variable::DefaultVariablePool::new());
-    let mut runtime = RefCell::new(runtime::Runtime::new(variable_pool));
+    let variable_pool = Box::new(variable::DefaultVariablePool::new());
+    let runtime = RefCell::new(runtime::Runtime::new(variable_pool));
 
     let mut rl = rustyline::Editor::<hinting::Helper>::new();
     let hinter = hinting::Helper { hints: &runtime };
