@@ -1,14 +1,10 @@
-#[macro_use]
-extern crate log;
-extern crate clap;
-extern crate pretty_env_logger;
-extern crate rustyline;
-
 pub mod expression;
+pub mod hinting;
 pub mod parser;
 pub mod runtime;
 pub mod variable;
 
+use log::{error, info, warn};
 use std::convert::From;
 use std::error;
 use std::fmt;
@@ -71,20 +67,52 @@ fn eval_line(runtime: &mut runtime::Runtime, line: &str) -> Result<(), ReplError
     Ok(())
 }
 
-fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
-    use std::fs::File;
-    use std::io::{BufRead, BufReader};
+fn history_file(matches: &clap::ArgMatches) -> Option<std::path::PathBuf> {
+    use std::path::Path;
 
-    let mut rl = rustyline::Editor::<()>::new();
-    let mut variable_pool = variable::DefaultVariablePool::new();
-    let mut runtime = runtime::Runtime::new(&mut variable_pool);
+    if let Some(filename) = matches.value_of("history_file") {
+        return Some(Path::new(filename).to_owned());
+    }
+    match dirs::home_dir() {
+        Some(mut dir) => {
+            dir.push(".lambdars_history");
+            Some(dir)
+        }
+        None => None,
+    }
+}
+
+fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
+    use rustyline::error::ReadlineError;
+    use std::cell::RefCell;
+    use std::fs::File;
+    use std::io::{BufRead, BufReader, ErrorKind};
+
+    let mut variable_pool = Box::new(variable::DefaultVariablePool::new());
+    let mut runtime = RefCell::new(runtime::Runtime::new(variable_pool));
+
+    let mut rl = rustyline::Editor::<hinting::Helper>::new();
+    let hinter = hinting::Helper { hints: &runtime };
+
+    rl.set_helper(Some(hinter));
+    let history_file = history_file(matches);
+
+    if let Some(history_file) = &history_file {
+        match rl.load_history(history_file) {
+            Ok(_) => {}
+            Err(ReadlineError::Io(err)) if err.kind() == ErrorKind::NotFound => {}
+            Err(err) => {
+                warn!("Could not load history file ({})", err);
+            }
+        }
+    }
 
     if let Some(filename) = matches.value_of("preamble") {
         let f = File::open(filename)?;
         let file = BufReader::new(&f);
         for line in file.lines() {
             let ref line = line?;
-            eval_line(&mut runtime, line)?;
+            eval_line(&mut runtime.borrow_mut(), line)?;
         }
     }
 
@@ -93,12 +121,19 @@ fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.clone());
-                match eval_line(&mut runtime, &line) {
+                match eval_line(&mut runtime.borrow_mut(), &line) {
                     Err(err) => warn!("{}", err),
                     _ => (),
                 };
             }
+            Err(ReadlineError::Interrupted) => {}
             Err(_) => break,
+        }
+    }
+
+    if let Some(history_file) = &history_file {
+        if let Err(err) = rl.save_history(history_file) {
+            warn!("Could not save history file {}", err)
         }
     }
 
@@ -118,6 +153,13 @@ fn main() {
                 .long("preamble")
                 .value_name("FILE")
                 .help("Preamble for the REPL session")
+                .takes_value(true),
+        )
+        .arg(
+            clap::Arg::with_name("history_file")
+                .long("history-file")
+                .value_name("FILE")
+                .help("Where to save REPL history")
                 .takes_value(true),
         )
         .get_matches();

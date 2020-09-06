@@ -1,8 +1,9 @@
-use expression::Expression;
-use parser::AstNode;
+use crate::expression::Expression;
+use crate::parser::AstNode;
+use crate::variable::{PrettyVariablePool, Variable, VariablePool};
+use log::{info, trace, warn};
 use std::error;
 use std::fmt;
-use variable::{PrettyVariablePool, Variable, VariablePool};
 
 use std::collections::{HashMap, HashSet};
 use std::vec::Vec;
@@ -38,12 +39,12 @@ impl ReduceStats {
     }
 }
 
-pub struct Runtime<'a> {
-    macros: HashMap<Variable, Expression>,
+pub struct Runtime {
+    pub macros: HashMap<Variable, Expression>,
     max_reductions: u32,
     max_size: u32,
     max_depth: u32,
-    pool: &'a mut dyn VariablePool,
+    pool: Box<dyn VariablePool>,
 }
 
 #[derive(Debug)]
@@ -69,8 +70,8 @@ impl error::Error for Error {
     }
 }
 
-impl<'a> Runtime<'a> {
-    pub fn new(pool: &'a mut dyn VariablePool) -> Self {
+impl Runtime {
+    pub fn new(pool: Box<dyn VariablePool>) -> Self {
         Self {
             macros: HashMap::new(),
             max_reductions: 100,

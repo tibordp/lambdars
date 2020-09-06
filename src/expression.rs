@@ -1,6 +1,6 @@
+use crate::variable::Variable;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use variable::Variable;
 
 #[derive(Debug, Clone)]
 pub enum Expression {

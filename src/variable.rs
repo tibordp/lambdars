@@ -31,7 +31,7 @@ impl fmt::Display for Variable {
 }
 
 pub trait VariablePool {
-    fn next_named(&mut self, &str) -> Variable;
+    fn next_named(&mut self, name: &str) -> Variable;
     fn next_anon(&mut self) -> Variable;
 }
 

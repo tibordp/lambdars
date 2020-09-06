@@ -1,10 +1,14 @@
 [package]
 name = "lambdars"
 version = "0.1.0"
+edition = "2018"
 authors = ["Tibor Djurica Potpara <tibor.djurica@ojdip.net>"]
 
 [dependencies]
 rustyline = "*"
+rustyline-derive = "*"
 log = "*"
+regex = "*"
 pretty_env_logger = "*"
 clap = "*"
+dirs = "*"

@@ -1,10 +1,10 @@
-use expression::Expression;
+use crate::expression::Expression;
+use crate::variable::Variable;
 use std::collections::HashSet;
 use std::error;
 use std::fmt;
 use std::iter::Peekable;
 use std::str::FromStr;
-use variable::Variable;
 
 #[derive(Debug)]
 pub enum AstNode {
