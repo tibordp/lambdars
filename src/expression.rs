@@ -16,6 +16,46 @@ impl fmt::Display for Expression {
 }
 
 impl Expression {
+    fn check_variables(
+        lhs: &Variable,
+        rhs: &Variable,
+        replacements: &mut HashMap<Variable, Variable>,
+    ) -> bool {
+        use std::collections::hash_map::Entry;
+        match replacements.entry(lhs.clone()) {
+            Entry::Occupied(what) => what.get() == rhs,
+            Entry::Vacant(what) => {
+                what.insert(rhs.clone());
+                true
+            }
+        }
+    }
+
+    fn alpha_equivalent_impl(
+        &self,
+        other: &Expression,
+        replacements: &mut HashMap<Variable, Variable>,
+    ) -> bool {
+        match (self, other) {
+            (Expression::Lambda(l_var, l_body), Expression::Lambda(r_var, r_body)) => {
+                Self::check_variables(l_var, r_var, replacements)
+                    && l_body.alpha_equivalent_impl(r_body, replacements)
+            }
+            (Expression::Variable(lhs), Expression::Variable(rhs)) => {
+                Self::check_variables(lhs, rhs, replacements)
+            }
+            (Expression::Apply(l_lhs, l_rhs), Expression::Apply(r_lhs, r_rhs)) => {
+                l_lhs.alpha_equivalent_impl(r_lhs, replacements)
+                    && l_rhs.alpha_equivalent_impl(r_rhs, replacements)
+            }
+            _ => false,
+        }
+    }
+
+    pub fn alpha_equivalent(&self, other: &Expression) -> bool {
+        self.alpha_equivalent_impl(other, &mut HashMap::new())
+    }
+
     fn variables_impl(&self, variables: &mut HashSet<Variable>) {
         match self {
             Expression::Variable(_) => (),

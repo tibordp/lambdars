@@ -29,6 +29,8 @@ lambdars also supports defining macros that are substituted before reduction in 
 λx.λy.x (x y)
 ```
 
+All the macro definitions are eagerly evaluated (and reduced to canonical form). In order to give a name to a lambda expression that may not have a canonical form such as the Y-combinator or `(λx.x x) (λx.x x)`, a `#declare` command can be used. In this case, no substitution will be performed and macro will be stored as-is. 
+
 All the defined macros can be dumped with `#dump`.
 
 The result of previous reduction is available with `@`:
