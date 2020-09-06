@@ -312,8 +312,14 @@ impl Runtime {
                 Ok(self.last_output.clone())
             }
             AstNode::Define(var, expression) => {
-                let reduced_macro = self.macro_replace(&expression)?;
-                self.macros.insert(var.to_owned(), reduced_macro);
+                let replaced = self.macro_replace(&expression)?;
+                let reduced = self.reduce_full(replaced)?;
+                let reindexed = self.reindex(&reduced);
+                self.macros.insert(var.to_owned(), reindexed);
+                Ok(None)
+            }
+            AstNode::Declare(var, expression) => {
+                self.macros.insert(var.to_owned(), expression.clone());
                 Ok(None)
             }
             AstNode::SetMaxReductions(limit) => {

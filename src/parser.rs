@@ -10,6 +10,7 @@ use std::str::FromStr;
 pub enum AstNode {
     Nothing,
     Define(Variable, Expression),
+    Declare(Variable, Expression),
     SetMaxReductions(u32),
     SetMaxSize(u32),
     SetMaxDepth(u32),
@@ -228,6 +229,13 @@ impl<T: Iterator<Item = Token>> Parser<T> {
         Ok(AstNode::Define(variable, expression))
     }
 
+    fn parse_declare(&mut self) -> Result<AstNode, Error> {
+        self.it.next();
+        let variable = Self::get_variable(self.it.next())?;
+        let expression = self.parse_expression(false)?;
+        Ok(AstNode::Declare(variable, expression))
+    }
+
     fn parse_parametrized<U: FromStr>(&mut self) -> Result<U, Error> {
         self.it.next();
         let variable = Self::get_variable(self.it.next())?;
@@ -241,6 +249,7 @@ impl<T: Iterator<Item = Token>> Parser<T> {
         match self.it.peek().cloned() {
             Some(Token::Command(s)) => match s.as_ref() {
                 "define" => self.parse_define(),
+                "declare" => self.parse_declare(),
                 "max_reductions" => self.parse_parametrized().map(AstNode::SetMaxReductions),
                 "max_size" => self.parse_parametrized().map(AstNode::SetMaxSize),
                 "max_depth" => self.parse_parametrized().map(AstNode::SetMaxDepth),

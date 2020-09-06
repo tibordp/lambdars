@@ -13,6 +13,8 @@ pretty_env_logger = "*"
 clap = "*"
 dirs = "*"
 signal-hook = "*"
+termcolor = "*"
+atty = "*"
 
 [dev-dependencies]
 assert_matches = "*"

@@ -58,13 +58,32 @@ impl From<parser::Error> for ReplError {
     }
 }
 
-fn eval_line(runtime: &mut runtime::Runtime, line: &str) -> Result<(), ReplError> {
+fn eval_line(
+    runtime: &mut runtime::Runtime,
+    line: &str,
+    stdout: &mut termcolor::StandardStream,
+) -> Result<(), ReplError> {
     use parser::{Lexer, Parser};
+    use std::io::Write;
+    use termcolor::{Color, ColorSpec, WriteColor};
 
     let mut parser = Parser::new(Lexer::new(line.chars()));
     let ast = &(parser.parse()?);
     if let Some(result) = runtime.eval(ast)? {
-        println!("{}", result);
+        let matching_macros: Vec<_> = runtime
+            .macros
+            .iter()
+            .filter(|(_, v)| v.alpha_equivalent(&result))
+            .map(|(k, _)| format!("{}", k))
+            .collect();
+        if matching_macros.is_empty() {
+            writeln!(stdout, "{}", result)?;
+        } else {
+            write!(stdout, "{} ", result)?;
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
+            writeln!(stdout, "[{}]", matching_macros.join(", "))?;
+            stdout.reset()?;
+        }
     }
 
     Ok(())
@@ -91,6 +110,7 @@ fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
     use std::cell::RefCell;
     use std::fs::File;
     use std::io::{BufRead, BufReader, ErrorKind};
+    use termcolor::{ColorChoice, StandardStream};
 
     let variable_pool = box variable::DefaultVariablePool::new();
     let runtime = RefCell::new(runtime::Runtime::new(variable_pool));
@@ -105,6 +125,11 @@ fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
     );
 
     let history_file = history_file(matches);
+    let mut stdout = StandardStream::stdout(if atty::is(atty::Stream::Stdout) {
+        ColorChoice::Auto
+    } else {
+        ColorChoice::Never
+    });
 
     if let Some(history_file) = &history_file {
         match rl.load_history(history_file) {
@@ -121,7 +146,7 @@ fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
         let file = BufReader::new(&f);
         for line in file.lines() {
             let line = &(line?);
-            eval_line(&mut runtime.borrow_mut(), line)?;
+            eval_line(&mut runtime.borrow_mut(), line, &mut stdout)?;
         }
     }
 
@@ -130,7 +155,7 @@ fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.clone());
-                if let Err(err) = eval_line(&mut runtime.borrow_mut(), &line) {
+                if let Err(err) = eval_line(&mut runtime.borrow_mut(), &line, &mut stdout) {
                     warn!("{}", err);
                 }
             }
