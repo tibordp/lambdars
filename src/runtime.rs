@@ -1,6 +1,8 @@
 use crate::expression::Expression;
 use crate::parser::AstNode;
+use crate::utils::Interruptor;
 use crate::variable::{PrettyVariablePool, Variable, VariablePool};
+
 use log::{info, trace};
 use std::error;
 use std::fmt;
@@ -44,22 +46,31 @@ pub struct Runtime {
     max_reductions: u32,
     max_size: u32,
     max_depth: u32,
+    last_output: Option<Expression>,
     pool: Box<dyn VariablePool>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     IterationsExceeded(Expression, u32),
     DepthExceeded(Expression, u32),
     SizeExceeded(Expression, u32),
+    Terminated(Expression, u32),
+    NoLastOutput,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::IterationsExceeded(_, cnt) => write!(f, "Exceeded limit of {} iterations.", cnt),
-            Error::DepthExceeded(_, cnt) => write!(f, "Intermediary expression exceeded depth limit ({}).", cnt),
-            Error::SizeExceeded(_, cnt) => write!(f, "Intermediary expression exceeded size limit ({})", cnt),
+            Error::DepthExceeded(_, cnt) => {
+                write!(f, "Intermediary expression exceeded depth limit ({}).", cnt)
+            }
+            Error::SizeExceeded(_, cnt) => {
+                write!(f, "Intermediary expression exceeded size limit ({})", cnt)
+            }
+            Error::Terminated(_, cnt) => write!(f, "Terminated after {} iterations.", cnt),
+            Error::NoLastOutput => write!(f, "There is no last output to use"),
         }
     }
 }
@@ -77,6 +88,7 @@ impl Runtime {
             max_reductions: 100,
             max_depth: 1000,
             max_size: 1000,
+            last_output: None,
             pool,
         }
     }
@@ -85,7 +97,13 @@ impl Runtime {
         let mut pool = PrettyVariablePool::new();
         let mut taken_names = Vec::new();
         let mut replacements = HashMap::new();
-        self.reindex_impl(expression, 0, &mut pool, &mut taken_names, &mut replacements)
+        self.reindex_impl(
+            expression,
+            0,
+            &mut pool,
+            &mut taken_names,
+            &mut replacements,
+        )
     }
 
     fn reindex_impl(
@@ -102,8 +120,8 @@ impl Runtime {
                 Some(rep) => rep.clone(),
             }),
             Expression::Apply(lhs, rhs) => Expression::Apply(
-                Box::new(self.reindex_impl(lhs.as_ref(), depth, pool, taken_names, replacements)),
-                Box::new(self.reindex_impl(rhs.as_ref(), depth, pool, taken_names, replacements)),
+                box self.reindex_impl(lhs.as_ref(), depth, pool, taken_names, replacements),
+                box self.reindex_impl(rhs.as_ref(), depth, pool, taken_names, replacements),
             ),
             Expression::Lambda(var, body) => {
                 let replacement = if depth == taken_names.len() {
@@ -117,7 +135,13 @@ impl Runtime {
                 replacements.insert(var.clone(), replacement.clone());
                 let result = Expression::Lambda(
                     replacement,
-                    Box::new(self.reindex_impl(body.as_ref(), depth + 1, pool, taken_names, replacements)),
+                    box self.reindex_impl(
+                        body.as_ref(),
+                        depth + 1,
+                        pool,
+                        taken_names,
+                        replacements,
+                    ),
                 );
                 replacements.remove(&var);
                 result
@@ -139,7 +163,10 @@ impl Runtime {
                         .collect();
 
                     if replacements.is_empty() {
-                        (lhs_body.beta_reduce(&lhs_var, rhs.as_ref()), ReduceStats::new(0, 1))
+                        (
+                            lhs_body.beta_reduce(&lhs_var, rhs.as_ref()),
+                            ReduceStats::new(0, 1),
+                        )
                     } else {
                         (
                             lhs_body.beta_reduce(&lhs_var, &rhs.alpha_reduce(&replacements)),
@@ -150,16 +177,15 @@ impl Runtime {
                 _ => {
                     let (lhs, lhs_stats) = self.reduce(lhs.as_ref());
                     let (rhs, rhs_stats) = self.reduce(rhs.as_ref());
-
                     (
-                        Expression::Apply(Box::new(lhs), Box::new(rhs)),
+                        Expression::Apply(box lhs, box rhs),
                         ReduceStats::combine(&lhs_stats, &rhs_stats),
                     )
                 }
             },
             Expression::Lambda(var, body) => {
                 let (body, stats) = self.reduce(body.as_ref());
-                (Expression::Lambda(var.clone(), Box::new(body)), stats)
+                (Expression::Lambda(var.clone(), box body), stats)
             }
         }
     }
@@ -167,6 +193,7 @@ impl Runtime {
     fn reduce_full(&mut self, expression: Expression) -> Result<Expression, Error> {
         let mut result = expression;
         let mut overall_stats = ReduceStats::default();
+        let interruptor = Interruptor::register().unwrap();
 
         for i in 1..self.max_reductions {
             let (reduced, reduce_stats) = self.reduce(&result);
@@ -178,6 +205,10 @@ impl Runtime {
 
             if expr_stats.depth() > self.max_depth {
                 return Err(Error::DepthExceeded(result, expr_stats.depth()));
+            }
+
+            if interruptor.check() {
+                return Err(Error::Terminated(result, i));
             }
 
             if reduce_stats.is_finished() {
@@ -209,13 +240,28 @@ impl Runtime {
         Err(Error::IterationsExceeded(result, self.max_reductions))
     }
 
-    fn macro_replace_impl(&mut self, expression: &Expression, variables: &mut HashSet<Variable>) -> Expression {
+    fn macro_replace_impl(
+        &mut self,
+        expression: &Expression,
+        variables: &mut HashSet<Variable>,
+    ) -> Result<Expression, Error> {
         match expression {
             Expression::Variable(var) => {
                 if variables.contains(&var) {
-                    Expression::Variable(var.clone())
+                    Ok(Expression::Variable(var.clone()))
                 } else {
-                    match self.macros.get(&var).cloned() {
+                    let replacement = if var.value() == "@" {
+                        Some(
+                            self.last_output
+                                .as_ref()
+                                .ok_or(Error::NoLastOutput)?
+                                .clone(),
+                        )
+                    } else {
+                        self.macros.get(&var).cloned()
+                    };
+
+                    match replacement {
                         Some(replacement) => {
                             // Do an alpha reduction of the macro if there are already bound variables with the same name in the current context
                             let replacements: HashMap<Variable, Variable> = replacement
@@ -225,29 +271,32 @@ impl Runtime {
                                 .collect();
 
                             if replacements.is_empty() {
-                                replacement
+                                Ok(replacement)
                             } else {
-                                replacement.alpha_reduce(&replacements)
+                                Ok(replacement.alpha_reduce(&replacements))
                             }
                         }
-                        _ => Expression::Variable(var.clone()),
+                        _ => Ok(Expression::Variable(var.clone())),
                     }
                 }
             }
-            Expression::Apply(lhs, rhs) => Expression::Apply(
-                Box::new(self.macro_replace_impl(lhs.as_ref(), variables)),
-                Box::new(self.macro_replace_impl(rhs.as_ref(), variables)),
-            ),
+            Expression::Apply(lhs, rhs) => Ok(Expression::Apply(
+                box self.macro_replace_impl(lhs.as_ref(), variables)?,
+                box self.macro_replace_impl(rhs.as_ref(), variables)?,
+            )),
             Expression::Lambda(var, body) => {
                 variables.insert(var.clone());
-                let result = Expression::Lambda(var.clone(), Box::new(self.macro_replace_impl(body.as_ref(), variables)));
+                let result = Expression::Lambda(
+                    var.clone(),
+                    box self.macro_replace_impl(body.as_ref(), variables)?,
+                );
                 variables.remove(&var);
-                result
+                Ok(result)
             }
         }
     }
 
-    fn macro_replace(&mut self, expression: &Expression) -> Expression {
+    fn macro_replace(&mut self, expression: &Expression) -> Result<Expression, Error> {
         let mut variables = HashSet::new();
         self.macro_replace_impl(expression, &mut variables)
     }
@@ -255,13 +304,15 @@ impl Runtime {
     pub fn eval(&mut self, what: &AstNode) -> Result<Option<Expression>, Error> {
         match what {
             AstNode::Reduce(expression) => {
-                let replaced = self.macro_replace(expression);
+                let replaced = self.macro_replace(expression)?;
                 let reduced = self.reduce_full(replaced)?;
                 let reindexed = self.reindex(&reduced);
-                Ok(Some(reindexed))
+                self.last_output = Some(reindexed);
+
+                Ok(self.last_output.clone())
             }
             AstNode::Define(var, expression) => {
-                let reduced_macro = self.macro_replace(&expression);
+                let reduced_macro = self.macro_replace(&expression)?;
                 self.macros.insert(var.to_owned(), reduced_macro);
                 Ok(None)
             }
@@ -285,5 +336,95 @@ impl Runtime {
             }
             AstNode::Nothing => Ok(None),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::variable::DefaultVariablePool;
+    use assert_matches::assert_matches;
+
+    #[test]
+    fn reduce_expression() {
+        let mut runtime = Runtime::new(box DefaultVariablePool::default());
+
+        let identity = box Expression::Lambda(
+            Variable::new("x".to_owned(), 0),
+            box Expression::Variable(Variable::new("x".to_owned(), 0)),
+        );
+        let apply = Expression::Apply(
+            identity,
+            box Expression::Variable(Variable::new("y".to_owned(), 0)),
+        );
+
+        assert_matches!(
+            runtime.eval(&AstNode::Reduce(apply)),
+            Ok(Some(Expression::Variable(_)))
+        );
+    }
+
+    #[test]
+    fn last_output() {
+        let mut runtime = Runtime::new(box DefaultVariablePool::default());
+
+        let identity = Expression::Lambda(
+            Variable::new("x".to_owned(), 0),
+            box Expression::Variable(Variable::new("x".to_owned(), 0)),
+        );
+        runtime.eval(&AstNode::Reduce(identity)).unwrap();
+
+        let last_output = Expression::Variable(Variable::new("@".to_owned(), 0));
+
+        assert_matches!(
+            runtime.eval(&AstNode::Reduce(last_output)),
+            Ok(Some(Expression::Lambda(_, box Expression::Variable(_))))
+        );
+    }
+
+    #[test]
+    fn iterations_exceeded() {
+        let mut runtime = Runtime::new(box DefaultVariablePool::default());
+
+        let omega = box Expression::Lambda(
+            Variable::new("x".to_owned(), 0),
+            box Expression::Apply(
+                box Expression::Variable(Variable::new("x".to_owned(), 0)),
+                box Expression::Variable(Variable::new("x".to_owned(), 0)),
+            ),
+        );
+        let omega_2 = Expression::Apply(omega.clone(), omega.clone());
+
+        assert_matches!(
+            runtime.eval(&AstNode::Reduce(omega_2)),
+            Err(Error::IterationsExceeded(_, 100))
+        );
+    }
+
+    #[test]
+    fn depth_exceeded() {
+        let mut runtime = Runtime::new(box DefaultVariablePool::default());
+        runtime.eval(&AstNode::SetMaxReductions(10000)).unwrap();
+
+        let fix_part = box Expression::Lambda(
+            Variable::new("x".to_owned(), 0),
+            box Expression::Apply(
+                box Expression::Variable(Variable::new("f".to_owned(), 0)),
+                box Expression::Apply(
+                    box Expression::Variable(Variable::new("x".to_owned(), 0)),
+                    box Expression::Variable(Variable::new("x".to_owned(), 0)),
+                ),
+            ),
+        );
+
+        let fix = Expression::Lambda(
+            Variable::new("f".to_owned(), 0),
+            box Expression::Apply(fix_part.clone(), fix_part.clone()),
+        );
+
+        assert_matches!(
+            runtime.eval(&AstNode::Reduce(fix)),
+            Err(Error::SizeExceeded(_, 1002))
+        );
     }
 }

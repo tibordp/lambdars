@@ -12,3 +12,7 @@ regex = "*"
 pretty_env_logger = "*"
 clap = "*"
 dirs = "*"
+signal-hook = "*"
+
+[dev-dependencies]
+assert_matches = "*"

@@ -6,7 +6,7 @@ use std::fmt;
 use std::iter::Peekable;
 use std::str::FromStr;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AstNode {
     Nothing,
     Define(Variable, Expression),
@@ -17,12 +17,13 @@ pub enum AstNode {
     Reduce(Expression),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
     OpenParen,
     CloseParen,
     Lambda,
     Dot,
+    LastOutput,
     Identifier(String),
     Command(String),
 }
@@ -36,7 +37,9 @@ where
 
 impl<T: Iterator<Item = char>> Lexer<T> {
     pub fn new(it: T) -> Self {
-        Self { iter: it.peekable() }
+        Self {
+            iter: it.peekable(),
+        }
     }
 }
 
@@ -61,12 +64,18 @@ impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
                 self.iter.next();
                 Some(Token::Dot)
             }
+            Some('@') => {
+                self.iter.next();
+                Some(Token::LastOutput)
+            }
             Some('#') => {
                 let mut iden = String::default();
                 self.iter.next();
                 while let Some(ch) = self.iter.peek().cloned() {
                     match ch {
-                        'A'..='Z' | 'a'..='z' | '_' | '0'..='9' => iden.push(self.iter.next().unwrap()),
+                        'A'..='Z' | 'a'..='z' | '_' | '0'..='9' => {
+                            iden.push(self.iter.next().unwrap())
+                        }
                         _ => break,
                     }
                 }
@@ -76,7 +85,9 @@ impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
                 let mut iden = String::default();
                 while let Some(ch) = self.iter.peek().cloned() {
                     match ch {
-                        'A'..='Z' | 'a'..='z' | '_' | '0'..='9' => iden.push(self.iter.next().unwrap()),
+                        'A'..='Z' | 'a'..='z' | '_' | '0'..='9' => {
+                            iden.push(self.iter.next().unwrap())
+                        }
                         _ => break,
                     }
                 }
@@ -102,7 +113,7 @@ macro_rules! assert_token {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     UnexpectedToken(Token),
     RedefinedVariable(Variable),
@@ -115,7 +126,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::UnexpectedToken(ref token) => write!(f, "Unexpected token {:?}", token),
-            Error::RedefinedVariable(ref variable) => write!(f, "Variable {} is redefined in the inner scope", variable),
+            Error::RedefinedVariable(ref variable) => {
+                write!(f, "Variable {} is redefined in the inner scope", variable)
+            }
             Error::Unterminated => write!(f, "Unterminated expression"),
             Error::ExpectedInteger(ref found) => write!(f, "Expected integer, '{}' found", found),
             Error::UnknownCommand(ref found) => write!(f, "Unrecognized command #{}", found),
@@ -160,12 +173,17 @@ impl<T: Iterator<Item = Token>> Parser<T> {
         self.variables.insert(variable.clone());
         let expression = self.parse_expression(false)?;
         self.variables.remove(&variable);
-        Ok(Expression::Lambda(variable, Box::new(expression)))
+        Ok(Expression::Lambda(variable, box expression))
     }
 
     fn parse_paren(&mut self) -> Result<Expression, Error> {
         assert_token!(self.it.next(), Token::OpenParen)?;
         self.parse_expression(true)
+    }
+
+    fn parse_last_output(&mut self) -> Result<Expression, Error> {
+        assert_token!(self.it.next(), Token::LastOutput)?;
+        Ok(Expression::Variable(Variable::new("@".to_owned(), 0)))
     }
 
     fn parse_variable_expression(&mut self) -> Result<Expression, Error> {
@@ -181,12 +199,13 @@ impl<T: Iterator<Item = Token>> Parser<T> {
                 Some(Token::OpenParen) => self.parse_paren(),
                 Some(Token::CloseParen) => break,
                 Some(Token::Lambda) => self.parse_lambda(),
+                Some(Token::LastOutput) => self.parse_last_output(),
                 Some(Token::Identifier(_)) => self.parse_variable_expression(),
                 _ => break,
             };
 
             result = match result {
-                Some(expression) => Some(Expression::Apply(Box::new(expression), Box::new(subexpression?))),
+                Some(expression) => Some(Expression::Apply(box expression, box subexpression?)),
                 _ => Some(subexpression?),
             }
         }
@@ -231,11 +250,97 @@ impl<T: Iterator<Item = Token>> Parser<T> {
                 }
                 s => Err(Error::UnknownCommand(s.to_owned())),
             },
-            Some(Token::OpenParen) | Some(Token::CloseParen) | Some(Token::Lambda) | Some(Token::Identifier(_)) => {
-                self.parse_expression(false).map(AstNode::Reduce)
-            }
+            Some(Token::OpenParen)
+            | Some(Token::CloseParen)
+            | Some(Token::Lambda)
+            | Some(Token::LastOutput)
+            | Some(Token::Identifier(_)) => self.parse_expression(false).map(AstNode::Reduce),
             Some(tok) => Err(Error::UnexpectedToken(tok)),
             None => Ok(AstNode::Nothing),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert_matches::assert_matches;
+
+    #[test]
+    fn parse_lambda_expression() {
+        let line = "\\x.\\y.x y";
+        let mut parser = Parser::new(Lexer::new(line.chars()));
+
+        assert_matches!(
+            parser.parse(),
+            Ok(AstNode::Reduce(Expression::Lambda(
+                _,
+                box Expression::Lambda(
+                    _,
+                    box Expression::Apply(box Expression::Variable(_), box Expression::Variable(_)),
+                ),
+            )))
+        );
+    }
+
+    #[test]
+    fn parse_lambda_expression_left_associative() {
+        let line = "\\x.x x x x";
+        let mut parser = Parser::new(Lexer::new(line.chars()));
+
+        assert_matches!(
+            parser.parse(),
+            Ok(AstNode::Reduce(Expression::Lambda(
+                _,
+                box Expression::Apply(
+                    box Expression::Apply(
+                        box Expression::Apply(
+                            box Expression::Variable(_),
+                            box Expression::Variable(_),
+                        ),
+                        box Expression::Variable(_),
+                    ),
+                    box Expression::Variable(_),
+                ),
+            )))
+        );
+    }
+
+    #[test]
+    fn parse_invalid_command() {
+        let line = "#invalid";
+        let mut parser = Parser::new(Lexer::new(line.chars()));
+
+        assert_matches!(parser.parse(), Err(Error::UnknownCommand(_)));
+    }
+
+    #[test]
+    fn parse_incomplete_expression() {
+        let line = "\\x.";
+        let mut parser = Parser::new(Lexer::new(line.chars()));
+
+        assert_matches!(parser.parse(), Err(Error::Unterminated));
+    }
+
+    #[test]
+    fn parse_dump() {
+        let line = "#dump";
+        let mut parser = Parser::new(Lexer::new(line.chars()));
+
+        assert_matches!(parser.parse(), Ok(AstNode::Dump));
+    }
+
+    #[test]
+    fn parse_define() {
+        let line = "#define 0 \\x.\\y.y";
+        let mut parser = Parser::new(Lexer::new(line.chars()));
+
+        assert_matches!(
+            parser.parse(),
+            Ok(AstNode::Define(
+                _,
+                Expression::Lambda(_, box Expression::Lambda(_, box Expression::Variable(_))),
+            ))
+        );
     }
 }

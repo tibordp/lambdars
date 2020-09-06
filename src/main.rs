@@ -1,7 +1,10 @@
+#![feature(box_syntax, box_patterns)]
+
+pub mod completion;
 pub mod expression;
-pub mod hinting;
 pub mod parser;
 pub mod runtime;
+pub mod utils;
 pub mod variable;
 
 use log::{error, warn};
@@ -83,18 +86,24 @@ fn history_file(matches: &clap::ArgMatches) -> Option<std::path::PathBuf> {
 }
 
 fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
+    use crate::completion::Helper;
     use rustyline::error::ReadlineError;
     use std::cell::RefCell;
     use std::fs::File;
     use std::io::{BufRead, BufReader, ErrorKind};
 
-    let variable_pool = Box::new(variable::DefaultVariablePool::new());
+    let variable_pool = box variable::DefaultVariablePool::new();
     let runtime = RefCell::new(runtime::Runtime::new(variable_pool));
 
-    let mut rl = rustyline::Editor::<hinting::Helper>::new();
-    let hinter = hinting::Helper { hints: &runtime };
+    let mut rl = rustyline::Editor::<Helper>::new();
+    let hinter = Helper::new(&runtime);
 
     rl.set_helper(Some(hinter));
+    rl.bind_sequence(
+        rustyline::KeyPress::BracketedPasteStart,
+        rustyline::Cmd::Noop,
+    );
+
     let history_file = history_file(matches);
 
     if let Some(history_file) = &history_file {

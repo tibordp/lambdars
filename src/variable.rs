@@ -69,7 +69,8 @@ pub struct PrettyVariablePool {
 }
 
 static PRETTY_NAMES: &[char] = &[
-    'x', 'y', 'z', 'u', 'v', 'w', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+    'x', 'y', 'z', 'u', 'v', 'w', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+    'n', 'o', 'p', 'q', 'r', 's', 't',
 ];
 
 impl PrettyVariablePool {
