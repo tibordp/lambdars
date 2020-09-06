@@ -67,7 +67,7 @@ impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
                 loop {
                     match self.iter.peek().cloned() {
                         Some(ch) => match ch {
-                            'A'...'Z' | 'a'...'z' | '_' | '0'...'9' => iden.push(self.iter.next().unwrap()),
+                            'A'..='Z' | 'a'..='z' | '_' | '0'..='9' => iden.push(self.iter.next().unwrap()),
                             _ => break,
                         },
                         None => break,
@@ -75,12 +75,12 @@ impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
                 }
                 Some(Token::Command(iden))
             }
-            Some('A'...'Z') | Some('a'...'z') | Some('_') | Some('0'...'9') => {
+            Some('A'..='Z') | Some('a'..='z') | Some('_') | Some('0'..='9') => {
                 let mut iden = String::default();
                 loop {
                     match self.iter.peek().cloned() {
                         Some(ch) => match ch {
-                            'A'...'Z' | 'a'...'z' | '_' | '0'...'9' => iden.push(self.iter.next().unwrap()),
+                            'A'..='Z' | 'a'..='z' | '_' | '0'..='9' => iden.push(self.iter.next().unwrap()),
                             _ => break,
                         },
                         None => break,
@@ -130,7 +130,7 @@ impl fmt::Display for Error {
 }
 
 impl error::Error for Error {
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         None
     }
 }

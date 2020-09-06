@@ -32,7 +32,7 @@ impl fmt::Display for ReplError {
 }
 
 impl error::Error for ReplError {
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             ReplError::Io(ref err) => Some(err),
             ReplError::Parse(ref err) => Some(err),
@@ -119,7 +119,8 @@ fn main() {
                 .value_name("FILE")
                 .help("Preamble for the REPL session")
                 .takes_value(true),
-        ).get_matches();
+        )
+        .get_matches();
 
     match repl(&matches) {
         Ok(()) => {}

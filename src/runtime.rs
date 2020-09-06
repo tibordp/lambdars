@@ -43,7 +43,7 @@ pub struct Runtime<'a> {
     max_reductions: u32,
     max_size: u32,
     max_depth: u32,
-    pool: &'a mut VariablePool,
+    pool: &'a mut dyn VariablePool,
 }
 
 #[derive(Debug)]
@@ -64,13 +64,13 @@ impl fmt::Display for Error {
 }
 
 impl error::Error for Error {
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         None
     }
 }
 
 impl<'a> Runtime<'a> {
-    pub fn new(pool: &'a mut VariablePool) -> Self {
+    pub fn new(pool: &'a mut dyn VariablePool) -> Self {
         Self {
             macros: HashMap::new(),
             max_reductions: 100,
@@ -91,7 +91,7 @@ impl<'a> Runtime<'a> {
         &self,
         expression: &Expression,
         depth: usize,
-        pool: &mut VariablePool,
+        pool: &mut dyn VariablePool,
         taken_names: &mut Vec<Variable>,
         replacements: &mut HashMap<Variable, Variable>,
     ) -> Expression {
@@ -132,7 +132,7 @@ impl<'a> Runtime<'a> {
                     let left_vars = lhs.as_ref().variables();
                     let right_vars = rhs.as_ref().variables();
 
-                    let mut replacements: HashMap<Variable, Variable> = left_vars
+                    let replacements: HashMap<Variable, Variable> = left_vars
                         .intersection(&right_vars)
                         .map(|color| (color.clone(), self.pool.next_named(color.value())))
                         .collect();
@@ -217,7 +217,7 @@ impl<'a> Runtime<'a> {
                     match self.macros.get(&var).cloned() {
                         Some(replacement) => {
                             // Do an alpha reduction of the macro if there are already bound variables with the same name in the current context
-                            let mut replacements: HashMap<Variable, Variable> = replacement
+                            let replacements: HashMap<Variable, Variable> = replacement
                                 .variables()
                                 .intersection(&variables)
                                 .map(|color| (color.clone(), self.pool.next_named(color.value())))
