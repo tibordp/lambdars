@@ -1,8 +1,8 @@
+use crate::variable::Variable;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use variable::Variable;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expression {
     Variable(Variable),
     Apply(Box<Expression>, Box<Expression>),
@@ -43,15 +43,15 @@ impl Expression {
                 Some(rep) => rep.clone(),
             }),
             Expression::Apply(lhs, rhs) => Expression::Apply(
-                Box::new(lhs.as_ref().alpha_reduce(replacements)),
-                Box::new(rhs.as_ref().alpha_reduce(replacements)),
+                box lhs.as_ref().alpha_reduce(replacements),
+                box rhs.as_ref().alpha_reduce(replacements),
             ),
             Expression::Lambda(var, body) => Expression::Lambda(
                 match replacements.get(var) {
                     None => var.clone(),
                     Some(rep) => rep.clone(),
                 },
-                Box::new(body.as_ref().alpha_reduce(replacements)),
+                box body.as_ref().alpha_reduce(replacements),
             ),
         }
     }
@@ -59,7 +59,9 @@ impl Expression {
     pub fn stats(&self) -> ExpressionStats {
         let child_stats = match self {
             Expression::Variable(_) => ExpressionStats::default(),
-            Expression::Apply(lhs, rhs) => ExpressionStats::combine(&lhs.as_ref().stats(), &rhs.as_ref().stats()),
+            Expression::Apply(lhs, rhs) => {
+                ExpressionStats::combine(&lhs.as_ref().stats(), &rhs.as_ref().stats())
+            }
             Expression::Lambda(_, body) => body.as_ref().stats(),
         };
 
@@ -76,10 +78,13 @@ impl Expression {
                 }
             }
             Expression::Apply(lhs, rhs) => Expression::Apply(
-                Box::new(lhs.as_ref().beta_reduce(variable, replacement)),
-                Box::new(rhs.as_ref().beta_reduce(variable, replacement)),
+                box lhs.as_ref().beta_reduce(variable, replacement),
+                box rhs.as_ref().beta_reduce(variable, replacement),
             ),
-            Expression::Lambda(var, body) => Expression::Lambda(var.clone(), Box::new(body.as_ref().beta_reduce(variable, replacement))),
+            Expression::Lambda(var, body) => Expression::Lambda(
+                var.clone(),
+                box body.as_ref().beta_reduce(variable, replacement),
+            ),
         }
     }
 

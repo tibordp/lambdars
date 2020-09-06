@@ -31,7 +31,7 @@ impl fmt::Display for Variable {
 }
 
 pub trait VariablePool {
-    fn next_named(&mut self, &str) -> Variable;
+    fn next_named(&mut self, name: &str) -> Variable;
     fn next_anon(&mut self) -> Variable;
 }
 
@@ -42,6 +42,12 @@ pub struct DefaultVariablePool {
 impl DefaultVariablePool {
     pub fn new() -> Self {
         Self { index: 1 }
+    }
+}
+
+impl Default for DefaultVariablePool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -62,13 +68,20 @@ pub struct PrettyVariablePool {
     index: usize,
 }
 
-static PRETTY_NAMES: &'static [char] = &[
-    'x', 'y', 'z', 'u', 'v', 'w', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+static PRETTY_NAMES: &[char] = &[
+    'x', 'y', 'z', 'u', 'v', 'w', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+    'n', 'o', 'p', 'q', 'r', 's', 't',
 ];
 
 impl PrettyVariablePool {
     pub fn new() -> Self {
         Self { index: 0 }
+    }
+}
+
+impl Default for PrettyVariablePool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -2,6 +2,10 @@
 
 lambdars is a REPL for playing with untyped lambda calculus.
 
+## Demo
+
+![](./docs/demo.gif)
+
 ## Usage
 
 lambdars accepts a lambda expression on every line and then tries to reduce it to a canonical form with a sequence of β-reductions and α-conversions.
@@ -25,6 +29,16 @@ lambdars also supports defining macros that are substituted before reduction in 
 λx.λy.x (x y)
 ```
 
+All the defined macros can be dumped with `#dump`.
+
+The result of previous reduction is available with `@`:
+```
+> \x.x x
+λx.x x
+> @ @
+ WARN  lambdars > Runtime error: Exceeded limit of 100 iterations.
+```
+
 As a lambda expression may not converge to a normal form by repeated β and α reductions (lossely speaking, may never terminate), there are some execution limits in place, they can be controlled as such:
 
 ```
@@ -39,14 +53,15 @@ A preamble file (see e.g. [Church numerals and combinators](./examples/church.tx
 lambdars --preamble ./example/church.txt
 ```
 
-## Demo
+## Installation
 
-![](./docs/demo.gif)
-
-## Building from source
-
-lambdars can be built using standard Rust tooling out of the box.
+lambdars can be built using standard Rust tooling out of the box, but it requires nightly compiler due to `box_syntax` and `box_patterns` features that are not stabilized yet.
 
 ```
-cargo --release build
+$ git clone https://github.com/tibordp/lambdars.git
+$ cd lambdars
+$ cargo +nightly install --path .
+$ lambdars
+>
 ```
+
