@@ -59,7 +59,7 @@ fn eval_line(runtime: &mut runtime::Runtime, line: &str) -> Result<(), ReplError
     use parser::{Lexer, Parser};
 
     let mut parser = Parser::new(Lexer::new(line.chars()));
-    let ref ast = parser.parse()?;
+    let ast = &(parser.parse()?);
     if let Some(result) = runtime.eval(ast)? {
         println!("{}", result);
     }
@@ -111,7 +111,7 @@ fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
         let f = File::open(filename)?;
         let file = BufReader::new(&f);
         for line in file.lines() {
-            let ref line = line?;
+            let line = &(line?);
             eval_line(&mut runtime.borrow_mut(), line)?;
         }
     }

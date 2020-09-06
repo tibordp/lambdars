@@ -24,7 +24,7 @@ impl ReduceStats {
     }
 
     pub fn is_finished(&self) -> bool {
-        return self.alpha == 0 && self.beta == 0;
+        self.alpha == 0 && self.beta == 0
     }
 
     pub fn combine(lhs: &Self, rhs: &Self) -> Self {
@@ -116,7 +116,7 @@ impl Runtime {
 
                 replacements.insert(var.clone(), replacement.clone());
                 let result = Expression::Lambda(
-                    replacement.clone(),
+                    replacement,
                     Box::new(self.reindex_impl(body.as_ref(), depth + 1, pool, taken_names, replacements)),
                 );
                 replacements.remove(&var);
@@ -225,7 +225,7 @@ impl Runtime {
                                 .collect();
 
                             if replacements.is_empty() {
-                                replacement.clone()
+                                replacement
                             } else {
                                 replacement.alpha_reduce(&replacements)
                             }
