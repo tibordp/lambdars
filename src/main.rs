@@ -121,10 +121,9 @@ fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.clone());
-                match eval_line(&mut runtime.borrow_mut(), &line) {
-                    Err(err) => warn!("{}", err),
-                    _ => (),
-                };
+                if let Err(err) = eval_line(&mut runtime.borrow_mut(), &line) {
+                    warn!("{}", err);
+                }
             }
             Err(ReadlineError::Interrupted) => {}
             Err(_) => break,

@@ -2,7 +2,6 @@ use regex::Regex;
 
 use std::cell::RefCell;
 
-
 use crate::runtime::Runtime;
 use rustyline::completion::Completer;
 use rustyline::{Context, Result};

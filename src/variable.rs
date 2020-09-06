@@ -45,6 +45,12 @@ impl DefaultVariablePool {
     }
 }
 
+impl Default for DefaultVariablePool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VariablePool for DefaultVariablePool {
     fn next_named(&mut self, s: &str) -> Variable {
         let result = Variable::new(s.to_owned(), self.index);
@@ -69,6 +75,12 @@ static PRETTY_NAMES: &[char] = &[
 impl PrettyVariablePool {
     pub fn new() -> Self {
         Self { index: 0 }
+    }
+}
+
+impl Default for PrettyVariablePool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

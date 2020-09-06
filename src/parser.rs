@@ -64,26 +64,20 @@ impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
             Some('#') => {
                 let mut iden = String::default();
                 self.iter.next();
-                loop {
-                    match self.iter.peek().cloned() {
-                        Some(ch) => match ch {
-                            'A'..='Z' | 'a'..='z' | '_' | '0'..='9' => iden.push(self.iter.next().unwrap()),
-                            _ => break,
-                        },
-                        None => break,
+                while let Some(ch) = self.iter.peek().cloned() {
+                    match ch {
+                        'A'..='Z' | 'a'..='z' | '_' | '0'..='9' => iden.push(self.iter.next().unwrap()),
+                        _ => break,
                     }
                 }
                 Some(Token::Command(iden))
             }
             Some('A'..='Z') | Some('a'..='z') | Some('_') | Some('0'..='9') => {
                 let mut iden = String::default();
-                loop {
-                    match self.iter.peek().cloned() {
-                        Some(ch) => match ch {
-                            'A'..='Z' | 'a'..='z' | '_' | '0'..='9' => iden.push(self.iter.next().unwrap()),
-                            _ => break,
-                        },
-                        None => break,
+                while let Some(ch) = self.iter.peek().cloned() {
+                    match ch {
+                        'A'..='Z' | 'a'..='z' | '_' | '0'..='9' => iden.push(self.iter.next().unwrap()),
+                        _ => break,
                     }
                 }
                 Some(Token::Identifier(iden))
