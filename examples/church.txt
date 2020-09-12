@@ -1,7 +1,8 @@
 #max_reductions 10000
-#max_depth 1000
-#max_size 1000000
+#max_depth 2000
+#max_size 10000000
 
+; Arithemtic Church combinators
 #define 0 \f.\x.x
 #define 1 \f.\x.f x
 #define plus \m.\n.\f.\x.m f (n f x)
@@ -9,14 +10,18 @@
 #define mult \m.\n.\f.\x.m (n f) x
 #define pred \n.\f.\x.n (\g.\h.h (g f)) (\u.x) (\u.u)
 #define minus \m.\n.(n pred) m
+
+; Logical Church combinators
 #define true \a.\b.a
 #define false \a.\b.b
+#define not \p.\a.\b.p b a
 #define and \p.\q.p q p
 #define or \p.\q.p p q
+#define xor \p.\q.p (not q) q
+
 #define is_zero \n.n (\x.false) true
 #define leq \m.\n.is_zero (minus m n)
 #define eq \m.\n.and (leq m n) (leq n m)
-#declare fix \f.(\x.f (x x))(\x.f (x x))
 
 #define 2 succ 1
 #define 3 succ 2
@@ -33,19 +38,142 @@
 #define 14 succ 13
 #define 15 succ 14
 #define 16 succ 15
+#define 17 succ 16
+#define 18 succ 17
+#define 19 succ 18
+#define 20 succ 19
+#define 21 succ 20
+#define 22 succ 21
+#define 23 succ 22
+#define 24 succ 23
+#define 25 succ 24
+#define 26 succ 25
+#define 27 succ 26
+#define 28 succ 27
+#define 29 succ 28
+#define 30 succ 29
+#define 31 succ 30
+#define 32 succ 31
+#define 33 succ 32
+#define 34 succ 33
+#define 35 succ 34
+#define 36 succ 35
+#define 37 succ 36
+#define 38 succ 37
+#define 39 succ 38
+#define 40 succ 39
+#define 41 succ 40
+#define 42 succ 41
+#define 43 succ 42
+#define 44 succ 43
+#define 45 succ 44
+#define 46 succ 45
+#define 47 succ 46
+#define 48 succ 47
+#define 49 succ 48
+#define 50 succ 49
+#define 51 succ 50
+#define 52 succ 51
+#define 53 succ 52
+#define 54 succ 53
+#define 55 succ 54
+#define 56 succ 55
+#define 57 succ 56
+#define 58 succ 57
+#define 59 succ 58
+#define 60 succ 59
+#define 61 succ 60
+#define 62 succ 61
+#define 63 succ 62
+#define 64 succ 63
+#define 65 succ 64
+#define 66 succ 65
+#define 67 succ 66
+#define 68 succ 67
+#define 69 succ 68
+#define 70 succ 69
+#define 71 succ 70
+#define 72 succ 71
+#define 73 succ 72
+#define 74 succ 73
+#define 75 succ 74
+#define 76 succ 75
+#define 77 succ 76
+#define 78 succ 77
+#define 79 succ 78
+#define 80 succ 79
+#define 81 succ 80
+#define 82 succ 81
+#define 83 succ 82
+#define 84 succ 83
+#define 85 succ 84
+#define 86 succ 85
+#define 87 succ 86
+#define 88 succ 87
+#define 89 succ 88
+#define 90 succ 89
+#define 91 succ 90
+#define 92 succ 91
+#define 93 succ 92
+#define 94 succ 93
+#define 95 succ 94
+#define 96 succ 95
+#define 97 succ 96
+#define 98 succ 97
+#define 99 succ 98
+#define 100 succ 99
+#define 101 succ 100
+#define 102 succ 101
+#define 103 succ 102
+#define 104 succ 103
+#define 105 succ 104
+#define 106 succ 105
+#define 107 succ 106
+#define 108 succ 107
+#define 109 succ 108
+#define 110 succ 109
+#define 111 succ 110
+#define 112 succ 111
+#define 113 succ 112
+#define 114 succ 113
+#define 115 succ 114
+#define 116 succ 115
+#define 117 succ 116
+#define 118 succ 117
+#define 119 succ 118
+#define 120 succ 119
+#define 121 succ 120
+#define 122 succ 121
+#define 123 succ 122
+#define 124 succ 123
+#define 125 succ 124
+#define 126 succ 125
+#define 127 succ 126
+#define 128 succ 127
 
+; Y combinator
+#declare fix \f.(\x.x x)(\x.\y.f (x x) y)
+
+; Some fancy examples with recursion
 #declare fact_r \f.\x.(is_zero x) 1 (mult x (f (pred x)))
 #declare fact fix fact_r
-
-#declare divides_r \f.\m.\n.(leq m n) ((leq n m) true (f m (minus n m))) false
-#declare divides fix divides_r
-
-#declare is_prime_r \f.\m.\n.(is_zero (pred m) true ((divides m n) false (f (pred m) n)))
-#declare is_prime \p.is_zero (pred p) false ((fix is_prime_r) (pred p) p)
 
 #declare fib_r \f.\m.(is_zero (pred m) 1 (plus (f (pred m)) (f (pred (pred m)))))
 #declare fib fix fib_r
 
-#define omega \f.f f
-#declare Omega omega omega
+#declare mod_r \f.\m.\n.(leq m n) (f m (minus n m)) n
+#declare mod fix mod_r
+
+#declare div_r \f.\c.\m.\n.(leq m n) (f (succ c) m (minus n m)) c
+#declare div fix div_r 0
+
+#declare divides_r \f.\m.\n.(leq m n) ((leq n m) true (f m (minus n m))) false
+#declare divides fix divides_r
+
+#declare ackermann_r \A.\m.\n.(is_zero m) (succ n) ((is_zero n) (A (pred m) 1) (A (pred m) (A m (pred n))))
+#declare ackermann fix ackermann_r
+
+#declare is_prime_r \f.\m.\n.(is_zero (pred m) true ((divides m n) false (f (pred m) n)))
+#declare is_prime \p.is_zero (pred p) false ((fix is_prime_r) (pred p) p)
+
 

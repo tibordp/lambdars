@@ -14,7 +14,10 @@ pub enum AstNode {
     SetMaxReductions(u32),
     SetMaxSize(u32),
     SetMaxDepth(u32),
+    SetAutoReduce(bool),
     Dump,
+    Clear,
+    Expression(Expression),
     Reduce(Expression),
 }
 
@@ -52,7 +55,6 @@ impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
                 self.iter.next();
                 Some(Token::Lambda)
             }
-
             Some('(') => {
                 self.iter.next();
                 Some(Token::OpenParen)
@@ -68,6 +70,10 @@ impl<T: Iterator<Item = char>> Iterator for Lexer<T> {
             Some('@') => {
                 self.iter.next();
                 Some(Token::LastOutput)
+            }
+            Some(';') => {
+                while let Some(_) = self.iter.next() {}
+                None
             }
             Some('#') => {
                 let mut iden = String::default();
@@ -119,7 +125,7 @@ pub enum Error {
     UnexpectedToken(Token),
     RedefinedVariable(Variable),
     UnknownCommand(String),
-    ExpectedInteger(String),
+    Unexpected(String),
     Unterminated,
 }
 
@@ -131,7 +137,7 @@ impl fmt::Display for Error {
                 write!(f, "Variable {} is redefined in the inner scope", variable)
             }
             Error::Unterminated => write!(f, "Unterminated expression"),
-            Error::ExpectedInteger(ref found) => write!(f, "Expected integer, '{}' found", found),
+            Error::Unexpected(ref found) => write!(f, "Unexpected '{}' found", found),
             Error::UnknownCommand(ref found) => write!(f, "Unrecognized command #{}", found),
         }
     }
@@ -222,6 +228,12 @@ impl<T: Iterator<Item = Token>> Parser<T> {
         }
     }
 
+    fn parse_reduce(&mut self) -> Result<AstNode, Error> {
+        self.it.next();
+        let expression = self.parse_expression(false)?;
+        Ok(AstNode::Reduce(expression))
+    }
+
     fn parse_define(&mut self) -> Result<AstNode, Error> {
         self.it.next();
         let variable = Self::get_variable(self.it.next())?;
@@ -242,7 +254,7 @@ impl<T: Iterator<Item = Token>> Parser<T> {
         let variable_name = variable.value();
         variable_name
             .parse::<U>()
-            .map_err(|_| Error::ExpectedInteger(variable_name.to_owned()))
+            .map_err(|_| Error::Unexpected(variable_name.to_owned()))
     }
 
     pub fn parse(&mut self) -> Result<AstNode, Error> {
@@ -250,12 +262,18 @@ impl<T: Iterator<Item = Token>> Parser<T> {
             Some(Token::Command(s)) => match s.as_ref() {
                 "define" => self.parse_define(),
                 "declare" => self.parse_declare(),
+                "reduce" => self.parse_reduce(),
                 "max_reductions" => self.parse_parametrized().map(AstNode::SetMaxReductions),
                 "max_size" => self.parse_parametrized().map(AstNode::SetMaxSize),
                 "max_depth" => self.parse_parametrized().map(AstNode::SetMaxDepth),
+                "auto_reduce" => self.parse_parametrized().map(AstNode::SetAutoReduce),
                 "dump" => {
                     self.it.next();
                     Ok(AstNode::Dump)
+                }
+                "clear" => {
+                    self.it.next();
+                    Ok(AstNode::Clear)
                 }
                 s => Err(Error::UnknownCommand(s.to_owned())),
             },
@@ -263,7 +281,7 @@ impl<T: Iterator<Item = Token>> Parser<T> {
             | Some(Token::CloseParen)
             | Some(Token::Lambda)
             | Some(Token::LastOutput)
-            | Some(Token::Identifier(_)) => self.parse_expression(false).map(AstNode::Reduce),
+            | Some(Token::Identifier(_)) => self.parse_expression(false).map(AstNode::Expression),
             Some(tok) => Err(Error::UnexpectedToken(tok)),
             None => Ok(AstNode::Nothing),
         }
@@ -282,7 +300,7 @@ mod tests {
 
         assert_matches!(
             parser.parse(),
-            Ok(AstNode::Reduce(Expression::Lambda(
+            Ok(AstNode::Expression(Expression::Lambda(
                 _,
                 box Expression::Lambda(
                     _,
@@ -299,7 +317,7 @@ mod tests {
 
         assert_matches!(
             parser.parse(),
-            Ok(AstNode::Reduce(Expression::Lambda(
+            Ok(AstNode::Expression(Expression::Lambda(
                 _,
                 box Expression::Apply(
                     box Expression::Apply(
@@ -329,6 +347,14 @@ mod tests {
         let mut parser = Parser::new(Lexer::new(line.chars()));
 
         assert_matches!(parser.parse(), Err(Error::Unterminated));
+    }
+
+    #[test]
+    fn parse_comment() {
+        let line = "; comment";
+        let mut parser = Parser::new(Lexer::new(line.chars()));
+
+        assert_matches!(parser.parse(), Ok(AstNode::Nothing));
     }
 
     #[test]

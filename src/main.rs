@@ -77,13 +77,23 @@ fn eval_line(
             .map(|(k, _)| format!("{}", k))
             .collect();
         if matching_macros.is_empty() {
+            writeln!(stdout, "{:#}", result)?;
+        } else {
+            write!(stdout, "{:#} ", result)?;
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
+            writeln!(stdout, "// [{}]", matching_macros.join(", "))?;
+            stdout.reset()?;
+        }
+            /*
+            if matching_macros.is_empty() {
             writeln!(stdout, "{}", result)?;
         } else {
             write!(stdout, "{} ", result)?;
             stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
-            writeln!(stdout, "[{}]", matching_macros.join(", "))?;
+            writeln!(stdout, "; [{}]", matching_macros.join(", "))?;
             stdout.reset()?;
         }
+        */
     }
 
     Ok(())

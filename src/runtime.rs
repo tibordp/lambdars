@@ -46,6 +46,7 @@ pub struct Runtime {
     max_reductions: u32,
     max_size: u32,
     max_depth: u32,
+    auto_reduce: bool,
     last_output: Option<Expression>,
     pool: Box<dyn VariablePool>,
 }
@@ -55,7 +56,7 @@ pub enum Error {
     IterationsExceeded(Expression, u32),
     DepthExceeded(Expression, u32),
     SizeExceeded(Expression, u32),
-    Terminated(Expression, u32),
+    Interrupted,
     NoLastOutput,
 }
 
@@ -69,7 +70,7 @@ impl fmt::Display for Error {
             Error::SizeExceeded(_, cnt) => {
                 write!(f, "Intermediary expression exceeded size limit ({})", cnt)
             }
-            Error::Terminated(_, cnt) => write!(f, "Terminated after {} iterations.", cnt),
+            Error::Interrupted => write!(f, "Interrupted."),
             Error::NoLastOutput => write!(f, "There is no last output to use"),
         }
     }
@@ -88,6 +89,7 @@ impl Runtime {
             max_reductions: 100,
             max_depth: 1000,
             max_size: 1000,
+            auto_reduce: true,
             last_output: None,
             pool,
         }
@@ -97,12 +99,14 @@ impl Runtime {
         let mut pool = PrettyVariablePool::new();
         let mut taken_names = Vec::new();
         let mut replacements = HashMap::new();
+        let free_variables = expression.free_variables();
         self.reindex_impl(
             expression,
             0,
             &mut pool,
             &mut taken_names,
             &mut replacements,
+            &free_variables,
         )
     }
 
@@ -113,6 +117,7 @@ impl Runtime {
         pool: &mut dyn VariablePool,
         taken_names: &mut Vec<Variable>,
         replacements: &mut HashMap<Variable, Variable>,
+        free_variables: &HashSet<Variable>,
     ) -> Expression {
         match expression {
             Expression::Variable(var) => Expression::Variable(match replacements.get(var) {
@@ -120,12 +125,18 @@ impl Runtime {
                 Some(rep) => rep.clone(),
             }),
             Expression::Apply(lhs, rhs) => Expression::Apply(
-                box self.reindex_impl(lhs.as_ref(), depth, pool, taken_names, replacements),
-                box self.reindex_impl(rhs.as_ref(), depth, pool, taken_names, replacements),
+                box self.reindex_impl(lhs, depth, pool, taken_names, replacements, free_variables),
+                box self.reindex_impl(rhs, depth, pool, taken_names, replacements, free_variables),
             ),
             Expression::Lambda(var, body) => {
                 let replacement = if depth == taken_names.len() {
-                    let var = pool.next_anon();
+                    let var = loop {
+                        let var = pool.next_anon();
+                        if !free_variables.contains(&var) {
+                            break var;
+                        }
+                    };
+
                     taken_names.push(var.clone());
                     var
                 } else {
@@ -136,11 +147,12 @@ impl Runtime {
                 let result = Expression::Lambda(
                     replacement,
                     box self.reindex_impl(
-                        body.as_ref(),
+                        body,
                         depth + 1,
                         pool,
                         taken_names,
                         replacements,
+                        free_variables,
                     ),
                 );
                 replacements.remove(&var);
@@ -152,31 +164,54 @@ impl Runtime {
     fn reduce(&mut self, expr: &Expression) -> (Expression, ReduceStats) {
         match expr {
             Expression::Variable(_) => (expr.clone(), ReduceStats::default()),
-            Expression::Apply(lhs, rhs) => match lhs.as_ref() {
+            Expression::Apply(box lhs, rhs) => match lhs {
                 Expression::Lambda(lhs_var, lhs_body) => {
-                    let left_vars = lhs.as_ref().variables();
-                    let right_vars = rhs.as_ref().variables();
+                    let left_vars = lhs.bound_variables();
 
-                    let replacements: HashMap<Variable, Variable> = left_vars
+                    let right_vars = rhs.bound_variables();
+                    let right_free_vars = rhs.free_variables();
+
+                    // If any of the free variables on the left appear on the right hand side,
+                    // we need to replace them.
+                    let left_replacements: HashMap<Variable, Variable> = left_vars
+                        .intersection(&right_free_vars)
+                        .filter(|color| color != &lhs_var)
+                        .map(|color| (color.clone(), self.pool.next_named(color.value())))
+                        .collect();
+
+                    let right_replacements: HashMap<Variable, Variable> = left_vars
                         .intersection(&right_vars)
                         .map(|color| (color.clone(), self.pool.next_named(color.value())))
                         .collect();
 
-                    if replacements.is_empty() {
-                        (
-                            lhs_body.beta_reduce(&lhs_var, rhs.as_ref()),
-                            ReduceStats::new(0, 1),
-                        )
-                    } else {
-                        (
-                            lhs_body.beta_reduce(&lhs_var, &rhs.alpha_reduce(&replacements)),
+                    match (
+                        !left_replacements.is_empty(),
+                        !right_replacements.is_empty(),
+                    ) {
+                        (false, false) => {
+                            (lhs_body.beta_reduce(&lhs_var, rhs), ReduceStats::new(0, 1))
+                        }
+                        (false, true) => (
+                            lhs_body.beta_reduce(&lhs_var, &rhs.alpha_reduce(&right_replacements)),
                             ReduceStats::new(1, 1),
-                        )
+                        ),
+                        (true, false) => (
+                            lhs_body
+                                .alpha_reduce(&left_replacements)
+                                .beta_reduce(&lhs_var, rhs),
+                            ReduceStats::new(1, 1),
+                        ),
+                        (true, true) => (
+                            lhs_body
+                                .alpha_reduce(&left_replacements)
+                                .beta_reduce(&lhs_var, &rhs.alpha_reduce(&right_replacements)),
+                            ReduceStats::new(2, 1),
+                        ),
                     }
                 }
                 _ => {
-                    let (lhs, lhs_stats) = self.reduce(lhs.as_ref());
-                    let (rhs, rhs_stats) = self.reduce(rhs.as_ref());
+                    let (lhs, lhs_stats) = self.reduce(lhs);
+                    let (rhs, rhs_stats) = self.reduce(rhs);
                     (
                         Expression::Apply(box lhs, box rhs),
                         ReduceStats::combine(&lhs_stats, &rhs_stats),
@@ -184,7 +219,7 @@ impl Runtime {
                 }
             },
             Expression::Lambda(var, body) => {
-                let (body, stats) = self.reduce(body.as_ref());
+                let (body, stats) = self.reduce(body);
                 (Expression::Lambda(var.clone(), box body), stats)
             }
         }
@@ -208,7 +243,15 @@ impl Runtime {
             }
 
             if interruptor.check() {
-                return Err(Error::Terminated(result, i));
+                info!(
+                    "Finished {} iterations, total α: {}, total β: {}, size: {}, depth: {}",
+                    i,
+                    overall_stats.alpha(),
+                    overall_stats.beta(),
+                    expr_stats.size(),
+                    expr_stats.depth()
+                );
+                return Err(Error::Interrupted);
             }
 
             if reduce_stats.is_finished() {
@@ -261,11 +304,11 @@ impl Runtime {
                         self.macros.get(&var).cloned()
                     };
 
-                    match replacement {
+                    match replacement.map(|e| self.macro_replace(&e)).transpose()? {
                         Some(replacement) => {
                             // Do an alpha reduction of the macro if there are already bound variables with the same name in the current context
                             let replacements: HashMap<Variable, Variable> = replacement
-                                .variables()
+                                .bound_variables()
                                 .intersection(&variables)
                                 .map(|color| (color.clone(), self.pool.next_named(color.value())))
                                 .collect();
@@ -281,15 +324,13 @@ impl Runtime {
                 }
             }
             Expression::Apply(lhs, rhs) => Ok(Expression::Apply(
-                box self.macro_replace_impl(lhs.as_ref(), variables)?,
-                box self.macro_replace_impl(rhs.as_ref(), variables)?,
+                box self.macro_replace_impl(lhs, variables)?,
+                box self.macro_replace_impl(rhs, variables)?,
             )),
             Expression::Lambda(var, body) => {
                 variables.insert(var.clone());
-                let result = Expression::Lambda(
-                    var.clone(),
-                    box self.macro_replace_impl(body.as_ref(), variables)?,
-                );
+                let result =
+                    Expression::Lambda(var.clone(), box self.macro_replace_impl(body, variables)?);
                 variables.remove(&var);
                 Ok(result)
             }
@@ -304,18 +345,29 @@ impl Runtime {
     pub fn eval(&mut self, what: &AstNode) -> Result<Option<Expression>, Error> {
         match what {
             AstNode::Reduce(expression) => {
-                let replaced = self.macro_replace(expression)?;
-                let reduced = self.reduce_full(replaced)?;
-                let reindexed = self.reindex(&reduced);
-                self.last_output = Some(reindexed);
+                let mut expr = self.macro_replace(&expression)?;
+                expr = self.reduce_full(expr)?;
+                expr = self.reindex(&expr);
+                self.last_output = Some(expr);
 
                 Ok(self.last_output.clone())
             }
+            AstNode::Expression(expression) => {
+                let mut expr = self.macro_replace(&expression)?;
+                if self.auto_reduce {
+                    expr = self.reduce_full(expr)?;
+                }
+                expr = self.reindex(&expr);
+                self.last_output = Some(expr);
+                Ok(self.last_output.clone())
+            }
             AstNode::Define(var, expression) => {
-                let replaced = self.macro_replace(&expression)?;
-                let reduced = self.reduce_full(replaced)?;
-                let reindexed = self.reindex(&reduced);
-                self.macros.insert(var.to_owned(), reindexed);
+                let mut expr = self.macro_replace(&expression)?;
+                if self.auto_reduce {
+                    expr = self.reduce_full(expr)?;
+                }
+                expr = self.reindex(&expr);
+                self.macros.insert(var.to_owned(), expr);
                 Ok(None)
             }
             AstNode::Declare(var, expression) => {
@@ -334,10 +386,18 @@ impl Runtime {
                 self.max_depth = *limit;
                 Ok(None)
             }
+            AstNode::SetAutoReduce(auto_reduce) => {
+                self.auto_reduce = *auto_reduce;
+                Ok(None)
+            }
             AstNode::Dump => {
                 for (name, expr) in &self.macros {
                     println!("#define {} {}", name, expr);
                 }
+                Ok(None)
+            }
+            AstNode::Clear => {
+                self.macros.clear();
                 Ok(None)
             }
             AstNode::Nothing => Ok(None),
