@@ -18,6 +18,28 @@ Both `λ` and `\` are accepted for specifying a lambda abstraction, for example:
 λx.λy.x (x (x (x y)))
 ```
 
+The result of previous reduction is available with `@`:
+```
+> \x.x x
+λx.x x
+> @ @
+ WARN  lambdars > Runtime error: Exceeded limit of 100 iterations.
+```
+
+By default all the expressions entered are eagerly reduced to normal form. In order to change this behavior, `#auto_reduce` command can be used:
+
+```
+> (\x.x) (\x.x)
+ INFO  lambdars::runtime > Reduced in 2 iterations, total α: 1, total β: 1
+λx.x
+> #auto_reduce false
+> (\x.x) (\x.x)
+(λx.x) (λx.x)
+> #reduce @
+ INFO  lambdars::runtime > Reduced in 2 iterations, total α: 1, total β: 1
+λx.x
+```
+
 lambdars also supports defining macros that are substituted before reduction in order to make the lengthy expressions a bit more manageable:
 
 ```
@@ -33,14 +55,6 @@ All the macro definitions are eagerly evaluated (and reduced to canonical form).
 
 All the defined macros can be dumped with `#dump`.
 
-The result of previous reduction is available with `@`:
-```
-> \x.x x
-λx.x x
-> @ @
- WARN  lambdars > Runtime error: Exceeded limit of 100 iterations.
-```
-
 As a lambda expression may not converge to a normal form by repeated β and α reductions (lossely speaking, may never terminate), there are some execution limits in place, they can be controlled as such:
 
 ```
@@ -53,6 +67,16 @@ A preamble file (see e.g. [Church numerals and combinators](./examples/church.tx
 
 ```
 lambdars --preamble ./example/church.txt
+```
+
+An alternative Javascript output mode is available:
+```
+> #output_mode default
+> \f.\x.f (f x)
+λx.λy.x (x y)
+> #output_mode javascript
+> @
+x => y => x(x(y))
 ```
 
 ## Installation

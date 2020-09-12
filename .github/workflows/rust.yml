@@ -26,3 +26,6 @@ jobs:
         run: cargo +nightly test --verbose
       - name: Clippy
         run: cargo +nightly clippy -- -D warnings
+      - name: Check style
+        run: cargo +nightly fmt -- --check
+
