@@ -6,6 +6,23 @@ use std::fmt;
 use std::iter::Peekable;
 use std::str::FromStr;
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum OutputMode {
+    Default,
+    Javascript,
+}
+
+impl FromStr for OutputMode {
+    type Err = Error;
+    fn from_str(input: &str) -> Result<OutputMode, Self::Err> {
+        match input {
+            "javascript" => Ok(OutputMode::Javascript),
+            "default" => Ok(OutputMode::Default),
+            _ => Err(Error::Unexpected(input.to_owned())),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum AstNode {
     Nothing,
@@ -15,6 +32,7 @@ pub enum AstNode {
     SetMaxSize(u32),
     SetMaxDepth(u32),
     SetAutoReduce(bool),
+    SetOutputMode(OutputMode),
     Dump,
     Clear,
     Expression(Expression),
@@ -267,6 +285,7 @@ impl<T: Iterator<Item = Token>> Parser<T> {
                 "max_size" => self.parse_parametrized().map(AstNode::SetMaxSize),
                 "max_depth" => self.parse_parametrized().map(AstNode::SetMaxDepth),
                 "auto_reduce" => self.parse_parametrized().map(AstNode::SetAutoReduce),
+                "output_mode" => self.parse_parametrized().map(AstNode::SetOutputMode),
                 "dump" => {
                     self.it.next();
                     Ok(AstNode::Dump)

@@ -63,6 +63,7 @@ fn eval_line(
     line: &str,
     stdout: &mut termcolor::StandardStream,
 ) -> Result<(), ReplError> {
+    use crate::parser::OutputMode;
     use parser::{Lexer, Parser};
     use std::io::Write;
     use termcolor::{Color, ColorSpec, WriteColor};
@@ -76,24 +77,29 @@ fn eval_line(
             .filter(|(_, v)| v.alpha_equivalent(&result))
             .map(|(k, _)| format!("{}", k))
             .collect();
-        if matching_macros.is_empty() {
-            writeln!(stdout, "{:#}", result)?;
-        } else {
-            write!(stdout, "{:#} ", result)?;
-            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
-            writeln!(stdout, "// [{}]", matching_macros.join(", "))?;
-            stdout.reset()?;
+
+        match runtime.output_mode() {
+            OutputMode::Default => {
+                if matching_macros.is_empty() {
+                    writeln!(stdout, "{}", result)?;
+                } else {
+                    write!(stdout, "{} ", result)?;
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
+                    writeln!(stdout, "; [{}]", matching_macros.join(", "))?;
+                    stdout.reset()?;
+                }
+            }
+            OutputMode::Javascript => {
+                if matching_macros.is_empty() {
+                    writeln!(stdout, "{:#}", result)?;
+                } else {
+                    write!(stdout, "{:#} ", result)?;
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
+                    writeln!(stdout, "// [{}]", matching_macros.join(", "))?;
+                    stdout.reset()?;
+                }
+            }
         }
-            /*
-            if matching_macros.is_empty() {
-            writeln!(stdout, "{}", result)?;
-        } else {
-            write!(stdout, "{} ", result)?;
-            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
-            writeln!(stdout, "; [{}]", matching_macros.join(", "))?;
-            stdout.reset()?;
-        }
-        */
     }
 
     Ok(())

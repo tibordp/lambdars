@@ -32,6 +32,8 @@ const COMMANDS: &[&str] = &[
     "#auto_reduce",
     "#dump",
     "#clear",
+    "#output_mode javascript",
+    "#output_mode default",
 ];
 
 impl<'a> Completer for Helper<'a> {

@@ -1,5 +1,6 @@
 use crate::expression::Expression;
 use crate::parser::AstNode;
+use crate::parser::OutputMode;
 use crate::utils::Interruptor;
 use crate::variable::{PrettyVariablePool, Variable, VariablePool};
 
@@ -43,6 +44,7 @@ impl ReduceStats {
 
 pub struct Runtime {
     pub macros: HashMap<Variable, Expression>,
+    output_mode: OutputMode,
     max_reductions: u32,
     max_size: u32,
     max_depth: u32,
@@ -86,6 +88,7 @@ impl Runtime {
     pub fn new(pool: Box<dyn VariablePool>) -> Self {
         Self {
             macros: HashMap::new(),
+            output_mode: OutputMode::Default,
             max_reductions: 100,
             max_depth: 1000,
             max_size: 1000,
@@ -342,6 +345,10 @@ impl Runtime {
         self.macro_replace_impl(expression, &mut variables)
     }
 
+    pub fn output_mode(&mut self) -> OutputMode {
+        self.output_mode
+    }
+
     pub fn eval(&mut self, what: &AstNode) -> Result<Option<Expression>, Error> {
         match what {
             AstNode::Reduce(expression) => {
@@ -388,6 +395,10 @@ impl Runtime {
             }
             AstNode::SetAutoReduce(auto_reduce) => {
                 self.auto_reduce = *auto_reduce;
+                Ok(None)
+            }
+            AstNode::SetOutputMode(output_mode) => {
+                self.output_mode = *output_mode;
                 Ok(None)
             }
             AstNode::Dump => {

@@ -69,6 +69,16 @@ A preamble file (see e.g. [Church numerals and combinators](./examples/church.tx
 lambdars --preamble ./example/church.txt
 ```
 
+An alternative Javascript output mode is available:
+```
+> #output_mode default
+> \f.\x.f (f x)
+λx.λy.x (x y)
+> #output_mode javascript
+> @
+x => y => x(x(y))
+```
+
 ## Installation
 
 lambdars can be built using standard Rust tooling out of the box, but it requires nightly compiler due to `box_syntax` and `box_patterns` features that are not stabilized yet.
