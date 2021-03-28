@@ -12,7 +12,7 @@ impl Interruptor {
         let flag = Arc::new(AtomicBool::new(false));
 
         Ok(Self {
-            signal: signal_hook::flag::register(signal_hook::SIGINT, flag.clone())?,
+            signal: signal_hook::flag::register(signal_hook::consts::SIGINT, flag.clone())?,
             flag,
         })
     }
@@ -24,6 +24,6 @@ impl Interruptor {
 
 impl Drop for Interruptor {
     fn drop(&mut self) {
-        signal_hook::unregister(self.signal);
+        signal_hook::low_level::unregister(self.signal);
     }
 }

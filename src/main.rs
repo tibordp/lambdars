@@ -136,7 +136,7 @@ fn repl(matches: &clap::ArgMatches) -> Result<(), ReplError> {
 
     rl.set_helper(Some(hinter));
     rl.bind_sequence(
-        rustyline::KeyPress::BracketedPasteStart,
+        rustyline::KeyEvent(rustyline::KeyCode::BracketedPasteStart, rustyline::Modifiers::NONE),
         rustyline::Cmd::Noop,
     );
 
